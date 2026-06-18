@@ -7,20 +7,36 @@ import type { Project, Batch } from '@shared/types';
 type TabType = 'projects' | 'batches';
 
 export default function Projects() {
-  const { projects, batches, samples, setCurrentProject, createProject, loading } = useAnalysisStore();
+  const {
+    projects, batches, samples,
+    setCurrentProject, createProject, updateProject, deleteProject,
+    loading
+  } = useAnalysisStore();
   const [activeTab, setActiveTab] = useState<TabType>('projects');
   const [selectedProject, setSelectedProject] = useState<Project | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showFilterModal, setShowFilterModal] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [newProjectForm, setNewProjectForm] = useState({
     name: '',
     description: '',
     organism: 'Homo sapiens',
     principalInvestigator: ''
   });
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterPI, setFilterPI] = useState('');
+  const [filterOrganism, setFilterOrganism] = useState('');
 
   const getProjectBatches = (projectId: string) => batches.filter(b => b.projectId === projectId);
   const getProjectSamples = (projectId: string) => samples.filter(s => s.projectId === projectId);
+
+  const filteredProjects = projects.filter(p => {
+    if (filterStatus && p.status !== filterStatus) return false;
+    if (filterPI && p.principalInvestigator !== filterPI) return false;
+    if (filterOrganism && p.organism !== filterOrganism) return false;
+    return true;
+  });
 
   const handleProjectClick = (project: Project) => {
     setSelectedProject(project);
@@ -36,6 +52,53 @@ export default function Projects() {
     setShowCreateModal(false);
     setNewProjectForm({ name: '', description: '', organism: 'Homo sapiens', principalInvestigator: '' });
     alert('项目创建成功！');
+  };
+
+  const handleEditProject = (project: Project) => {
+    setEditingProject(project);
+    setNewProjectForm({
+      name: project.name,
+      description: project.description,
+      organism: project.organism,
+      principalInvestigator: project.principalInvestigator,
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingProject) return;
+    if (!newProjectForm.name.trim()) {
+      alert('请输入项目名称');
+      return;
+    }
+    await updateProject(editingProject.id, newProjectForm);
+    setShowEditModal(false);
+    setEditingProject(null);
+    setNewProjectForm({ name: '', description: '', organism: 'Homo sapiens', principalInvestigator: '' });
+    alert('项目更新成功！');
+  };
+
+  const handleDeleteProject = async (project: Project) => {
+    if (!confirm(`确定要删除项目 "${project.name}" 吗？\n删除后将同时移除相关的批次、样本和分析记录。`)) {
+      return;
+    }
+    await deleteProject(project.id);
+    if (selectedProject?.id === project.id) {
+      setSelectedProject(null);
+      setCurrentProject(null);
+    }
+    alert(`项目 "${project.name}" 已删除`);
+  };
+
+  const applyFilters = () => {
+    setShowFilterModal(false);
+  };
+
+  const resetFilters = () => {
+    setFilterStatus('');
+    setFilterPI('');
+    setFilterOrganism('');
+    setShowFilterModal(false);
   };
 
   const handleExport = () => {
@@ -106,7 +169,7 @@ export default function Projects() {
       {activeTab === 'projects' ? (
         <div className="grid grid-cols-3 gap-6">
           <div className="col-span-2 space-y-4">
-            {projects.map((project) => (
+            {filteredProjects.map((project) => (
               <div
                 key={project.id}
                 className={`card p-5 card-hover cursor-pointer ${
@@ -161,14 +224,14 @@ export default function Projects() {
                     <button
                       className="p-2 text-slate-400 hover:text-primary-400 transition-colors"
                       title="查看项目"
-                      onClick={(e) => { e.stopPropagation(); alert(`查看项目: ${project.name}`); }}
+                      onClick={(e) => { e.stopPropagation(); handleProjectClick(project); }}
                     >
                       <Eye size={16} />
                     </button>
                     <button
                       className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
                       title="编辑项目"
-                      onClick={(e) => { e.stopPropagation(); alert(`编辑项目: ${project.name}`); }}
+                      onClick={(e) => { e.stopPropagation(); handleEditProject(project); }}
                     >
                       <Edit size={16} />
                     </button>
@@ -177,9 +240,7 @@ export default function Projects() {
                       title="删除项目"
                       onClick={(e) => {
                         e.stopPropagation();
-                        if (confirm(`确定删除项目 "${project.name}" 吗？`)) {
-                          alert(`项目 "${project.name}" 已删除`);
-                        }
+                        handleDeleteProject(project);
                       }}
                     >
                       <Trash2 size={16} />
@@ -399,6 +460,81 @@ export default function Projects() {
         </div>
       )}
 
+      {showEditModal && editingProject && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-lg overflow-hidden">
+            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">编辑项目</h2>
+              <button
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                onClick={() => setShowEditModal(false)}
+              >
+                <X size={20} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">项目名称 *</label>
+                <input
+                  type="text"
+                  className="input-field w-full"
+                  placeholder="请输入项目名称"
+                  value={newProjectForm.name}
+                  onChange={(e) => setNewProjectForm({ ...newProjectForm, name: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">项目描述</label>
+                <textarea
+                  className="input-field w-full min-h-[80px] resize-none"
+                  placeholder="请输入项目描述"
+                  value={newProjectForm.description}
+                  onChange={(e) => setNewProjectForm({ ...newProjectForm, description: e.target.value })}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">研究物种</label>
+                  <input
+                    type="text"
+                    className="input-field w-full"
+                    placeholder="例如 Homo sapiens"
+                    value={newProjectForm.organism}
+                    onChange={(e) => setNewProjectForm({ ...newProjectForm, organism: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">项目负责人</label>
+                  <input
+                    type="text"
+                    className="input-field w-full"
+                    placeholder="请输入负责人姓名"
+                    value={newProjectForm.principalInvestigator}
+                    onChange={(e) => setNewProjectForm({ ...newProjectForm, principalInvestigator: e.target.value })}
+                  />
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-700 flex justify-end gap-3">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowEditModal(false)}
+              >
+                取消
+              </button>
+              <button
+                className="btn-primary flex items-center gap-2"
+                onClick={handleSaveEdit}
+                disabled={loading}
+              >
+                <Save size={16} />
+                保存修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {showFilterModal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-md overflow-hidden">
@@ -414,7 +550,11 @@ export default function Projects() {
             <div className="p-5 space-y-4">
               <div>
                 <label className="block text-sm text-slate-400 mb-2">项目状态</label>
-                <select className="select-field w-full">
+                <select
+                  className="select-field w-full"
+                  value={filterStatus}
+                  onChange={(e) => setFilterStatus(e.target.value)}
+                >
                   <option value="">全部状态</option>
                   <option value="active">进行中</option>
                   <option value="completed">已完成</option>
@@ -423,7 +563,11 @@ export default function Projects() {
               </div>
               <div>
                 <label className="block text-sm text-slate-400 mb-2">负责人</label>
-                <select className="select-field w-full">
+                <select
+                  className="select-field w-full"
+                  value={filterPI}
+                  onChange={(e) => setFilterPI(e.target.value)}
+                >
                   <option value="">全部负责人</option>
                   {[...new Set(projects.map(p => p.principalInvestigator))].map(pi => (
                     <option key={pi} value={pi}>{pi}</option>
@@ -432,24 +576,33 @@ export default function Projects() {
               </div>
               <div>
                 <label className="block text-sm text-slate-400 mb-2">研究物种</label>
-                <select className="select-field w-full">
+                <select
+                  className="select-field w-full"
+                  value={filterOrganism}
+                  onChange={(e) => setFilterOrganism(e.target.value)}
+                >
                   <option value="">全部物种</option>
                   {[...new Set(projects.map(p => p.organism))].map(org => (
                     <option key={org} value={org}>{org}</option>
                   ))}
                 </select>
               </div>
+              {(filterStatus || filterPI || filterOrganism) && (
+                <div className="text-sm text-slate-400 pt-2 border-t border-slate-700">
+                  筛选结果：共 {filteredProjects.length} 个项目
+                </div>
+              )}
             </div>
             <div className="p-5 border-t border-slate-700 flex justify-end gap-3">
               <button
                 className="btn-secondary"
-                onClick={() => setShowFilterModal(false)}
+                onClick={resetFilters}
               >
                 重置
               </button>
               <button
                 className="btn-primary"
-                onClick={() => { setShowFilterModal(false); alert('筛选条件已应用'); }}
+                onClick={applyFilters}
               >
                 应用筛选
               </button>

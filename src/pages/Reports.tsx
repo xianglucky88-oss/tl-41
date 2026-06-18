@@ -69,6 +69,39 @@ export default function Reports() {
     });
   };
 
+  const handleDownloadReport = (report: AnalysisReport) => {
+    const content = `# ${report.title}\n\n生成时间: ${formatDate(report.generatedAt)}\n生成者: ${report.generatedBy}\n\n---\n\n` +
+      report.sections.map(s => {
+        if (s.type === 'text') {
+          return `## ${s.title}\n\n${s.content}\n`;
+        } else if (s.type === 'table') {
+          const rows = s.content as Record<string, unknown>[];
+          if (rows.length === 0) return `## ${s.title}\n\n无数据\n`;
+          const headers = Object.keys(rows[0] || {});
+          const tableRows = rows.map(row => headers.map(h => String(row[h])).join(' | ')).join('\n');
+          return `## ${s.title}\n\n${headers.join(' | ')}\n${headers.map(() => '---').join(' | ')}\n${tableRows}\n`;
+        } else if (s.type === 'chart') {
+          const data = s.content as Record<string, number>;
+          return `## ${s.title}\n\n${Object.entries(data).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`;
+        } else if (s.type === 'code') {
+          return `## ${s.title}\n\n\`\`\`json\n${s.content}\n\`\`\`\n`;
+        }
+        return `## ${s.title}\n\n${JSON.stringify(s.content, null, 2)}\n`;
+      }).join('\n---\n\n') +
+      `\n\n---\n\n## 可重现性信息\n\n### 软件版本\n${Object.entries(report.reproducibilityInfo.softwareVersions || {}).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n\n### 命令行\n${(report.reproducibilityInfo.commandLines || []).map(cmd => `\`${cmd}\``).join('\n')}\n\n### 输入文件哈希\n${Object.entries(report.reproducibilityInfo.inputFileHashes || {}).map(([k, v]) => `- ${k}: ${v}`).join('\n')}`;
+
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${report.title.replace(/\s+/g, '_').replace(/[^\w\u4e00-\u9fa5.-]/g, '')}.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    alert(`报告 "${report.title}" 已下载`);
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -171,6 +204,7 @@ export default function Reports() {
                   getProjectName={getProjectName}
                   formatDate={formatDate}
                   onView={() => setSelectedReport(report)}
+                  onDownload={handleDownloadReport}
                 />
               );
             })
@@ -199,9 +233,10 @@ interface ReportCardProps {
   getProjectName: (id: string) => string;
   formatDate: (date: string) => string;
   onView: () => void;
+  onDownload: (report: AnalysisReport) => void;
 }
 
-function ReportCard({ report, analysis, getProjectName, formatDate, onView }: ReportCardProps) {
+function ReportCard({ report, analysis, getProjectName, formatDate, onView, onDownload }: ReportCardProps) {
   const sectionIcons: Record<string, typeof FileText> = {
     text: FileText,
     table: Table,
@@ -218,7 +253,8 @@ function ReportCard({ report, analysis, getProjectName, formatDate, onView }: Re
         </div>
         <button
           className="p-2 opacity-0 group-hover:opacity-100 hover:bg-slate-700 rounded-lg transition-all"
-          onClick={(e) => { e.stopPropagation(); }}
+          title="下载报告"
+          onClick={(e) => { e.stopPropagation(); onDownload(report); }}
         >
           <Download size={16} className="text-slate-400" />
         </button>

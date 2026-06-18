@@ -16,7 +16,8 @@ export default function AnalysisWorkbench() {
     samples, projects, batches, analyses, alignmentResults,
     selectedSampleIds, setSelectedSampleIds,
     currentAnalysis, setCurrentAnalysis,
-    createAnalysis, updateAnalysis, runAlignment, loading, error
+    createAnalysis, updateAnalysis, runAlignment, completeAnalysis,
+    saveAnalysisTemplate, loading, error
   } = useAnalysisStore();
 
   const [analysisName, setAnalysisName] = useState('');
@@ -86,13 +87,14 @@ export default function AnalysisWorkbench() {
       batchId: selectedBatchId || undefined,
       sampleIds: selectedSampleIds,
       status: 'running',
+      startedAt: new Date().toISOString(),
       steps: steps.map((s, idx) => ({
         stepId: s.id,
         stepName: `${ALIGNMENT_TOOLS.find(t => t.id === s.toolId)?.name || '分析'} - 步骤${idx + 1}`,
         toolId: s.toolId,
         toolVersion: ALIGNMENT_TOOLS.find(t => t.id === s.toolId)?.version || '1.0',
         parameters: s.parameters,
-        startTime: new Date().toISOString(),
+        startTime: new Date(Date.now() + idx * 60000).toISOString(),
         endTime: '',
         status: idx === 0 ? 'running' : 'pending',
         inputFileIds: [],
@@ -110,33 +112,48 @@ export default function AnalysisWorkbench() {
 
     const newAnalysis = await createAnalysis(analysisData);
 
-    for (const step of steps) {
+    for (let i = 0; i < steps.length; i++) {
+      const step = steps[i];
       await runAlignment(step.toolId, step.parameters, selectedSampleIds);
     }
 
     const totalVars = Math.floor(100 + Math.random() * 1000);
-    const snpCount = Math.floor(totalVars * 0.85);
-    const indelCount = totalVars - snpCount;
-    const pathogenicCount = Math.floor(totalVars * 0.02);
-    await updateAnalysis(newAnalysis.id, {
-      status: 'completed',
-      completedAt: new Date().toISOString(),
-      resultSummary: {
-        totalVariants: totalVars,
-        snpCount,
-        indelCount,
-        pathogenicCount,
-        alignedReads: Math.floor(1000000 + Math.random() * 10000000),
-        alignmentRate: 95 + Math.random() * 5,
-        meanQuality: 90 + Math.random() * 10,
-      },
+    await completeAnalysis(newAnalysis.id, {
+      totalVariants: totalVars,
+      snpCount: Math.floor(totalVars * 0.85),
+      indelCount: Math.floor(totalVars * 0.15),
+      pathogenicCount: Math.floor(totalVars * 0.02),
+      alignedReads: Math.floor(1000000 + Math.random() * 10000000),
+      alignmentRate: 95 + Math.random() * 5,
+      meanQuality: 90 + Math.random() * 10,
     });
 
-    alert('分析完成！');
+    alert('分析完成！报告已生成，可在报告中心查看。');
   };
 
   const saveAsTemplate = () => {
-    alert('分析流程已保存为模板');
+    if (steps.length === 0) {
+      alert('请先添加至少一个分析步骤');
+      return;
+    }
+    const templateName = prompt('请输入模板名称:', `模板_${Date.now()}`);
+    if (!templateName || !templateName.trim()) return;
+
+    if (currentAnalysis) {
+      saveAnalysisTemplate(templateName.trim());
+      alert('分析流程已保存为模板');
+    } else {
+      const templates = JSON.parse(localStorage.getItem('analysisTemplates') || '[]');
+      templates.push({
+        id: `template_${Date.now()}`,
+        name: templateName.trim(),
+        steps: steps,
+        parametersSnapshot: {},
+        createdAt: new Date().toISOString(),
+      });
+      localStorage.setItem('analysisTemplates', JSON.stringify(templates));
+      alert('分析流程已保存为模板');
+    }
   };
 
   const resetForm = () => {

@@ -37,6 +37,10 @@ interface AnalysisActions {
   runAlignment: (toolId: AlignmentTool, params: Record<string, string | number | boolean>, sampleIds: string[]) => Promise<void>;
   createAnalysis: (data: Partial<AnalysisRecord>) => Promise<AnalysisRecord>;
   updateAnalysis: (id: string, data: Partial<AnalysisRecord>, changeDescription?: string) => Promise<void>;
+  completeAnalysis: (id: string, resultData?: Partial<AnalysisRecord['resultSummary']>) => Promise<void>;
+  deleteAnalysis: (id: string) => Promise<void>;
+  deleteProject: (id: string) => Promise<void>;
+  deleteSample: (id: string) => Promise<void>;
   fetchProjects: () => Promise<void>;
   fetchBatches: (projectId?: string) => Promise<void>;
   fetchSamples: (batchId?: string, projectId?: string) => Promise<void>;
@@ -46,7 +50,11 @@ interface AnalysisActions {
   generateReport: (analysisId: string) => Promise<AnalysisReport>;
   clearSelection: () => void;
   createProject: (data: Partial<Project>) => Promise<Project>;
+  updateProject: (id: string, data: Partial<Project>) => Promise<void>;
   createSample: (data: Partial<Sample>) => Promise<Sample>;
+  updateSample: (id: string, data: Partial<Sample>) => Promise<void>;
+  saveAnalysisTemplate: (name: string) => Promise<void>;
+  batchAnalysis: (sampleIds: string[], toolId: AlignmentTool, params: Record<string, string | number | boolean>) => Promise<void>;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -170,49 +178,73 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
         )
       );
       set({ alignmentResults: results, loading: false });
-
-      const currentAnalysis = get().currentAnalysis;
-      if (currentAnalysis && currentAnalysis.steps.length > 0) {
-        const totalVars = 100 + Math.floor(Math.random() * 900);
-        const completedAnalysis: AnalysisRecord = {
-          ...currentAnalysis,
-          status: 'completed',
-          completedAt: new Date().toISOString(),
-          resultSummary: {
-            totalVariants: totalVars,
-            snpCount: Math.floor(totalVars * 0.85),
-            indelCount: Math.floor(totalVars * 0.15),
-            pathogenicCount: Math.floor(totalVars * 0.02),
-            alignedReads: Math.floor(Math.random() * 10000000) + 1000000,
-            alignmentRate: 95 + Math.random() * 4.9,
-            meanQuality: 30 + Math.random() * 20,
-          },
-        };
-
-        const newVersionHistory: AnalysisVersionHistory = {
-          version: completedAnalysis.version,
-          timestamp: new Date().toISOString(),
-          changedBy: completedAnalysis.createdBy,
-          description: '运行完成，生成比对结果',
-          steps: completedAnalysis.steps,
-          parametersSnapshot: completedAnalysis.parametersSnapshot,
-          sampleIds: completedAnalysis.sampleIds,
-        };
-
-        completedAnalysis.versionHistory = [...completedAnalysis.versionHistory, newVersionHistory];
-
-        set(state => ({
-          analyses: state.analyses.map(a =>
-            a.id === completedAnalysis.id ? completedAnalysis : a
-          ),
-          currentAnalysis: completedAnalysis,
-        }));
-
-        await get().generateReport(completedAnalysis.id);
-      }
     } catch (error) {
       set({ error: '比对失败，请检查参数后重试', loading: false });
     }
+  },
+
+  completeAnalysis: async (id, resultData) => {
+    set({ loading: true });
+    await delay(500);
+
+    const analysis = get().analyses.find(a => a.id === id);
+    if (!analysis) {
+      set({ loading: false });
+      return;
+    }
+
+    const totalVars = resultData?.totalVariants ?? 100 + Math.floor(Math.random() * 900);
+    const resultSummary = {
+      totalVariants: totalVars,
+      snpCount: resultData?.snpCount ?? Math.floor(totalVars * 0.85),
+      indelCount: resultData?.indelCount ?? Math.floor(totalVars * 0.15),
+      pathogenicCount: resultData?.pathogenicCount ?? Math.floor(totalVars * 0.02),
+      alignedReads: resultData?.alignedReads ?? Math.floor(Math.random() * 10000000) + 1000000,
+      alignmentRate: resultData?.alignmentRate ?? 95 + Math.random() * 4.9,
+      meanQuality: resultData?.meanQuality ?? 30 + Math.random() * 20,
+    };
+
+    const now = new Date().toISOString();
+
+    const completedSteps = analysis.steps.map((step, idx) => ({
+      ...step,
+      status: 'completed' as const,
+      endTime: step.endTime || new Date(Date.now() - (analysis.steps.length - idx) * 60000).toISOString(),
+      log: step.log || `步骤 ${idx + 1} 完成`,
+    }));
+
+    const newVersionHistory: AnalysisVersionHistory = {
+      version: analysis.version + 1,
+      timestamp: now,
+      changedBy: analysis.createdBy,
+      description: '分析完成，生成最终结果',
+      steps: completedSteps,
+      parametersSnapshot: analysis.parametersSnapshot,
+      sampleIds: analysis.sampleIds,
+    };
+
+    const completedAnalysis: AnalysisRecord = {
+      ...analysis,
+      status: 'completed',
+      completedAt: now,
+      startedAt: analysis.startedAt || analysis.createdAt,
+      steps: completedSteps,
+      version: analysis.version + 1,
+      resultSummary,
+      versionHistory: [...analysis.versionHistory, newVersionHistory],
+    };
+
+    set(state => ({
+      analyses: state.analyses.map(a =>
+        a.id === id ? completedAnalysis : a
+      ),
+      currentAnalysis: state.currentAnalysis?.id === id
+        ? completedAnalysis
+        : state.currentAnalysis,
+      loading: false,
+    }));
+
+    await get().generateReport(id);
   },
 
   createAnalysis: async (data) => {
@@ -461,6 +493,105 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       loading: false,
     }));
     return newSample;
+  },
+
+  updateProject: async (id, data) => {
+    set({ loading: true });
+    await delay(200);
+    const now = new Date().toISOString();
+    set(state => ({
+      projects: state.projects.map(p =>
+        p.id === id ? { ...p, ...data, updatedAt: now } : p
+      ),
+      currentProject: state.currentProject?.id === id
+        ? { ...state.currentProject, ...data, updatedAt: now }
+        : state.currentProject,
+      loading: false,
+    }));
+  },
+
+  updateSample: async (id, data) => {
+    set({ loading: true });
+    await delay(200);
+    set(state => ({
+      samples: state.samples.map(s =>
+        s.id === id ? { ...s, ...data } : s
+      ),
+      loading: false,
+    }));
+  },
+
+  deleteAnalysis: async (id) => {
+    set({ loading: true });
+    await delay(300);
+    set(state => ({
+      analyses: state.analyses.filter(a => a.id !== id),
+      reports: state.reports.filter(r => r.analysisId !== id),
+      currentAnalysis: state.currentAnalysis?.id === id ? null : state.currentAnalysis,
+      loading: false,
+    }));
+  },
+
+  deleteProject: async (id) => {
+    set({ loading: true });
+    await delay(300);
+    const relatedBatches = get().batches.filter(b => b.projectId === id);
+    const relatedSampleIds = get().samples.filter(s => s.projectId === id).map(s => s.id);
+    const relatedAnalysisIds = get().analyses.filter(a => a.projectId === id).map(a => a.id);
+    set(state => ({
+      projects: state.projects.filter(p => p.id !== id),
+      batches: state.batches.filter(b => b.projectId !== id),
+      samples: state.samples.filter(s => s.projectId !== id),
+      analyses: state.analyses.filter(a => a.projectId !== id),
+      reports: state.reports.filter(r => !relatedAnalysisIds.includes(r.analysisId)),
+      currentProject: state.currentProject?.id === id ? null : state.currentProject,
+      loading: false,
+    }));
+  },
+
+  deleteSample: async (id) => {
+    set({ loading: true });
+    await delay(200);
+    set(state => ({
+      samples: state.samples.filter(s => s.id !== id),
+      selectedSampleIds: state.selectedSampleIds.filter(sid => sid !== id),
+      loading: false,
+    }));
+  },
+
+  saveAnalysisTemplate: async (name) => {
+    set({ loading: true });
+    await delay(300);
+    const current = get().currentAnalysis;
+    if (!current) {
+      set({ loading: false });
+      return;
+    }
+    const templates = JSON.parse(localStorage.getItem('analysisTemplates') || '[]');
+    templates.push({
+      id: `template_${Date.now()}`,
+      name,
+      steps: current.steps,
+      parametersSnapshot: current.parametersSnapshot,
+      createdAt: new Date().toISOString(),
+    });
+    localStorage.setItem('analysisTemplates', JSON.stringify(templates));
+    set({ loading: false });
+  },
+
+  batchAnalysis: async (sampleIds, toolId, params) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(1000);
+      const results = sampleIds.flatMap(sampleId =>
+        Array.from({ length: 3 }, (_, i) =>
+          generateAlignmentResult(sampleId, `subject_${i + 1}`)
+        )
+      );
+      set({ alignmentResults: results, loading: false });
+    } catch (error) {
+      set({ error: '批量分析失败', loading: false });
+    }
   },
 
   clearSelection: () => {

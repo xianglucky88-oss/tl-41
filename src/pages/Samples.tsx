@@ -1,19 +1,30 @@
 import { useState } from 'react';
-import { TestTube, Search, Filter, Eye, ChevronDown, ChevronUp, Plus, Download, Upload, X, Save, FileText } from 'lucide-react';
+import {
+  TestTube, Search, Filter, Eye, Edit, Trash2, ChevronDown, ChevronUp,
+  Plus, Download, Upload, X, Save, FileText, Play, Zap
+} from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import DnaSequenceViewer from '@/components/DnaSequenceViewer';
 import type { Sample } from '@shared/types';
 
 export default function Samples() {
-  const { samples, batches, projects, selectedSampleIds, setSelectedSampleIds, createSample, loading } = useAnalysisStore();
+  const {
+    samples, batches, projects,
+    selectedSampleIds, setSelectedSampleIds,
+    createSample, updateSample, deleteSample,
+    loading
+  } = useAnalysisStore();
   const [searchText, setSearchText] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [selectedBatch, setSelectedBatch] = useState<string>('');
   const [expandedSample, setExpandedSample] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showBatchAnalyzeModal, setShowBatchAnalyzeModal] = useState(false);
   const [detailSample, setDetailSample] = useState<Sample | null>(null);
+  const [editingSample, setEditingSample] = useState<Sample | null>(null);
   const [newSampleForm, setNewSampleForm] = useState({
     name: '',
     projectId: '',
@@ -98,6 +109,65 @@ export default function Samples() {
     setShowDetailModal(true);
   };
 
+  const handleEditSample = (sample: Sample) => {
+    setEditingSample(sample);
+    setNewSampleForm({
+      name: sample.name,
+      projectId: sample.projectId,
+      batchId: sample.batchId || '',
+      description: sample.description || '',
+      organism: sample.organism,
+      sequenceType: sample.sequenceType,
+    });
+    setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingSample) return;
+    if (!newSampleForm.name.trim()) {
+      alert('请输入样本名称');
+      return;
+    }
+    await updateSample(editingSample.id, {
+      name: newSampleForm.name,
+      description: newSampleForm.description,
+      organism: newSampleForm.organism,
+      sequenceType: newSampleForm.sequenceType,
+      projectId: newSampleForm.projectId,
+      batchId: newSampleForm.batchId || undefined,
+    });
+    setShowEditModal(false);
+    setEditingSample(null);
+    setNewSampleForm({ name: '', projectId: '', batchId: '', description: '', organism: 'Homo sapiens', sequenceType: 'dna' });
+    alert('样本更新成功！');
+  };
+
+  const handleDeleteSample = async (sample: Sample) => {
+    if (!confirm(`确定要删除样本 "${sample.name}" 吗？`)) {
+      return;
+    }
+    await deleteSample(sample.id);
+    if (detailSample?.id === sample.id) {
+      setShowDetailModal(false);
+      setDetailSample(null);
+    }
+    alert(`样本 "${sample.name}" 已删除`);
+  };
+
+  const handleBatchAnalyze = () => {
+    if (selectedSampleIds.length === 0) {
+      alert('请先选择要分析的样本');
+      return;
+    }
+    setShowBatchAnalyzeModal(true);
+  };
+
+  const startBatchAnalyze = async () => {
+    if (selectedSampleIds.length === 0) return;
+    setShowBatchAnalyzeModal(false);
+    alert(`已开始对 ${selectedSampleIds.length} 个样本进行批量分析`);
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -110,9 +180,10 @@ export default function Samples() {
             <div className="flex items-center gap-2 bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-2">
               <span className="text-sm text-primary-400">已选择 {selectedSampleIds.length} 个样本</span>
               <button
-                className="text-sm text-white bg-primary-600 hover:bg-primary-500 px-3 py-1 rounded-lg transition-colors"
-                onClick={() => alert(`对 ${selectedSampleIds.length} 个样本启动分析`)}
+                className="text-sm text-white bg-primary-600 hover:bg-primary-500 px-3 py-1 rounded-lg transition-colors flex items-center gap-1"
+                onClick={handleBatchAnalyze}
               >
+                <Zap size={14} />
                 批量分析
               </button>
             </div>
@@ -217,6 +288,8 @@ export default function Samples() {
               onSelect={() => toggleSampleSelection(sample.id)}
               onToggleExpand={() => setExpandedSample(expandedSample === sample.id ? null : sample.id)}
               onViewDetail={handleViewDetail}
+              onEdit={handleEditSample}
+              onDelete={handleDeleteSample}
               projectName={getProjectName(sample.projectId)}
               batchName={getBatchName(sample.batchId)}
             />
@@ -325,6 +398,189 @@ export default function Samples() {
               >
                 <Save size={16} />
                 创建样本
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showEditModal && editingSample && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-lg overflow-hidden">
+            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">编辑样本</h2>
+              <button
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                onClick={() => setShowEditModal(false)}
+              >
+                <X size={20} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">样本名称 *</label>
+                  <input
+                    type="text"
+                    className="input-field w-full"
+                    placeholder="例如 sample_010"
+                    value={newSampleForm.name}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">所属项目 *</label>
+                  <select
+                    className="select-field w-full"
+                    value={newSampleForm.projectId}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, projectId: e.target.value })}
+                  >
+                    <option value="">请选择项目</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">所属批次</label>
+                <select
+                  className="select-field w-full"
+                  value={newSampleForm.batchId}
+                  onChange={(e) => setNewSampleForm({ ...newSampleForm, batchId: e.target.value })}
+                >
+                  <option value="">请选择批次（可选）</option>
+                  {batches
+                    .filter(b => !newSampleForm.projectId || b.projectId === newSampleForm.projectId)
+                    .map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">物种</label>
+                  <input
+                    type="text"
+                    className="input-field w-full"
+                    placeholder="例如 Homo sapiens"
+                    value={newSampleForm.organism}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, organism: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">序列类型</label>
+                  <select
+                    className="select-field w-full"
+                    value={newSampleForm.sequenceType}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, sequenceType: e.target.value as 'dna' | 'rna' | 'protein' })}
+                  >
+                    <option value="dna">DNA</option>
+                    <option value="rna">RNA</option>
+                    <option value="protein">Protein</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">样本描述</label>
+                <textarea
+                  className="input-field w-full min-h-[80px] resize-none"
+                  placeholder="描述样本来源、处理方式等..."
+                  value={newSampleForm.description}
+                  onChange={(e) => setNewSampleForm({ ...newSampleForm, description: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-700 flex justify-end gap-3">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowEditModal(false)}
+              >
+                取消
+              </button>
+              <button
+                className="btn-primary flex items-center gap-2"
+                onClick={handleSaveEdit}
+                disabled={loading}
+              >
+                <Save size={16} />
+                保存修改
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBatchAnalyzeModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-lg overflow-hidden">
+            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">批量分析</h2>
+              <button
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                onClick={() => setShowBatchAnalyzeModal(false)}
+              >
+                <X size={20} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="p-4 rounded-xl bg-primary-500/10 border border-primary-500/30">
+                <p className="text-sm text-primary-400">
+                  已选择 <span className="font-bold">{selectedSampleIds.length}</span> 个样本进行批量分析
+                </p>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">分析工具</label>
+                <select className="select-field w-full" defaultValue="bwa">
+                  <option value="bwa">BWA - Burrows-Wheeler Aligner</option>
+                  <option value="blast">BLAST - 基础局部比对搜索工具</option>
+                  <option value="bowtie2">Bowtie 2 - 快速短序列比对</option>
+                  <option value="minimap2">Minimap2 - 长序列比对</option>
+                  <option value="mafft">MAFFT - 多序列比对</option>
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">线程数</label>
+                  <select className="select-field w-full" defaultValue="4">
+                    <option value="2">2 线程</option>
+                    <option value="4">4 线程</option>
+                    <option value="8">8 线程</option>
+                    <option value="16">16 线程</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">输出格式</label>
+                  <select className="select-field w-full" defaultValue="bam">
+                    <option value="sam">SAM</option>
+                    <option value="bam">BAM</option>
+                    <option value="cram">CRAM</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">分析名称</label>
+                <input
+                  type="text"
+                  className="input-field w-full"
+                  placeholder="批量分析 - 样本组A"
+                  defaultValue={`批量分析_${new Date().toLocaleDateString('zh-CN')}`}
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-700 flex justify-end gap-3">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowBatchAnalyzeModal(false)}
+              >
+                取消
+              </button>
+              <button
+                className="btn-primary flex items-center gap-2"
+                onClick={startBatchAnalyze}
+              >
+                <Play size={16} />
+                开始分析
               </button>
             </div>
           </div>
@@ -441,11 +697,13 @@ interface SampleRowProps {
   onSelect: () => void;
   onToggleExpand: () => void;
   onViewDetail: (sample: Sample) => void;
+  onEdit: (sample: Sample) => void;
+  onDelete: (sample: Sample) => void;
   projectName: string;
   batchName: string;
 }
 
-function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, onViewDetail, projectName, batchName }: SampleRowProps) {
+function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, onViewDetail, onEdit, onDelete, projectName, batchName }: SampleRowProps) {
   return (
     <div className={`transition-colors ${isSelected ? 'bg-primary-500/5' : ''}`}>
       <div className="p-4 flex items-center gap-4 hover:bg-slate-800/30">
@@ -491,6 +749,20 @@ function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, o
             onClick={() => onViewDetail(sample)}
           >
             <Eye size={18} />
+          </button>
+          <button
+            className="p-2 text-slate-400 hover:text-blue-400 transition-colors"
+            title="编辑样本"
+            onClick={() => onEdit(sample)}
+          >
+            <Edit size={18} />
+          </button>
+          <button
+            className="p-2 text-slate-400 hover:text-red-400 transition-colors"
+            title="删除样本"
+            onClick={() => onDelete(sample)}
+          >
+            <Trash2 size={18} />
           </button>
         </div>
       </div>
