@@ -55,6 +55,9 @@ interface AnalysisActions {
   updateSample: (id: string, data: Partial<Sample>) => Promise<void>;
   saveAnalysisTemplate: (name: string) => Promise<void>;
   batchAnalysis: (sampleIds: string[], toolId: AlignmentTool, params: Record<string, string | number | boolean>) => Promise<void>;
+  createBatch: (data: Partial<Batch>) => Promise<Batch>;
+  updateBatch: (id: string, data: Partial<Batch>) => Promise<void>;
+  deleteBatch: (id: string) => Promise<void>;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -592,6 +595,53 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
     } catch (error) {
       set({ error: '批量分析失败', loading: false });
     }
+  },
+
+  createBatch: async (data) => {
+    set({ loading: true });
+    await delay(300);
+    const newBatch: Batch = {
+      id: `batch_${Date.now()}`,
+      name: data.name || 'New Batch',
+      projectId: data.projectId || '',
+      description: data.description || '',
+      sampleCount: 0,
+      createdAt: new Date().toISOString(),
+      createdBy: '当前用户',
+      status: data.status || 'processing',
+    };
+    set(state => ({
+      batches: [...state.batches, newBatch],
+      loading: false,
+    }));
+    return newBatch;
+  },
+
+  updateBatch: async (id, data) => {
+    set({ loading: true });
+    await delay(200);
+    set(state => ({
+      batches: state.batches.map(b =>
+        b.id === id ? { ...b, ...data } : b
+      ),
+      currentBatch: state.currentBatch?.id === id
+        ? { ...state.currentBatch, ...data }
+        : state.currentBatch,
+      loading: false,
+    }));
+  },
+
+  deleteBatch: async (id) => {
+    set({ loading: true });
+    await delay(300);
+    const relatedSampleIds = get().samples.filter(s => s.batchId === id).map(s => s.id);
+    set(state => ({
+      batches: state.batches.filter(b => b.id !== id),
+      samples: state.samples.map(s => s.batchId === id ? { ...s, batchId: '' } : s),
+      analyses: state.analyses.filter(a => a.batchId !== id),
+      currentBatch: state.currentBatch?.id === id ? null : state.currentBatch,
+      loading: false,
+    }));
   },
 
   clearSelection: () => {

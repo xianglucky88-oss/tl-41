@@ -12,11 +12,12 @@ export default function Samples() {
     samples, batches, projects,
     selectedSampleIds, setSelectedSampleIds,
     createSample, updateSample, deleteSample,
-    loading
+    batchAnalysis, loading
   } = useAnalysisStore();
   const [searchText, setSearchText] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [selectedBatch, setSelectedBatch] = useState<string>('');
+  const [selectedSequenceType, setSelectedSequenceType] = useState<string>('');
   const [expandedSample, setExpandedSample] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -25,6 +26,12 @@ export default function Samples() {
   const [showBatchAnalyzeModal, setShowBatchAnalyzeModal] = useState(false);
   const [detailSample, setDetailSample] = useState<Sample | null>(null);
   const [editingSample, setEditingSample] = useState<Sample | null>(null);
+  const [batchAnalyzeForm, setBatchAnalyzeForm] = useState({
+    toolId: 'bwa' as 'bwa' | 'blastn' | 'blastp' | 'clustalw' | 'mafft' | 'muscle' | 'bowtie2' | 'minimap2',
+    threads: 4,
+    outputFormat: 'bam',
+    analysisName: '',
+  });
   const [newSampleForm, setNewSampleForm] = useState({
     name: '',
     projectId: '',
@@ -38,6 +45,7 @@ export default function Samples() {
     if (searchText && !sample.name.toLowerCase().includes(searchText.toLowerCase())) return false;
     if (selectedProject && sample.projectId !== selectedProject) return false;
     if (selectedBatch && sample.batchId !== selectedBatch) return false;
+    if (selectedSequenceType && sample.sequenceType !== selectedSequenceType) return false;
     return true;
   });
 
@@ -94,14 +102,141 @@ export default function Samples() {
   const handleImport = () => {
     const input = document.createElement('input');
     input.type = 'file';
-    input.accept = '.csv,.tsv,.fasta,.fastq';
-    input.onchange = (e) => {
-      const file = (e.target as HTMLInputElement).files?.[0];
-      if (file) {
-        alert(`已选择文件: ${file.name}\n此功能将上传并解析样本文件`);
+    input.accept = '.csv,.tsv,.fasta,.fastq,.fa,.fq';
+    input.multiple = true;
+    input.onchange = async (e) => {
+      const files = (e.target as HTMLInputElement).files;
+      if (!files || files.length === 0) return;
+
+      let importedCount = 0;
+      let failedCount = 0;
+
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const ext = file.name.split('.').pop()?.toLowerCase();
+        try {
+          const text = await file.text();
+
+          if (ext === 'csv' || ext === 'tsv') {
+            const lines = text.trim().split('\n');
+            const delimiter = ext === 'tsv' ? '\t' : ',';
+            const headers = lines[0].split(delimiter).map(h => h.trim().toLowerCase());
+
+            const nameIdx = headers.indexOf('name') > -1 ? headers.indexOf('name') : headers.indexOf('样本名称');
+            const organismIdx = headers.indexOf('organism') > -1 ? headers.indexOf('organism') : headers.indexOf('物种');
+            const descIdx = headers.indexOf('description') > -1 ? headers.indexOf('description') : headers.indexOf('描述');
+            const projectIdx = headers.indexOf('projectid') > -1 ? headers.indexOf('projectid') : headers.indexOf('项目');
+            const batchIdx = headers.indexOf('batchid') > -1 ? headers.indexOf('batchid') : headers.indexOf('批次');
+            const typeIdx = headers.indexOf('sequencetype') > -1 ? headers.indexOf('sequencetype') : headers.indexOf('序列类型');
+            const seqIdx = headers.indexOf('sequence') > -1 ? headers.indexOf('sequence') : headers.indexOf('序列');
+
+            for (let j = 1; j < lines.length; j++) {
+              if (!lines[j].trim()) continue;
+              const cols = lines[j].split(delimiter);
+              const sampleName = (cols[nameIdx] || `imported_${Date.now()}_${j}`).trim();
+              const sequence = (cols[seqIdx] || '').trim() || generateRandomSequence();
+
+              await createSample({
+                name: sampleName,
+                description: descIdx > -1 ? cols[descIdx]?.trim() : `从 ${file.name} 导入`,
+                organism: organismIdx > -1 ? cols[organismIdx]?.trim() || 'Homo sapiens' : 'Homo sapiens',
+                sequenceType: typeIdx > -1 ? (cols[typeIdx]?.trim().toLowerCase() as any) || 'dna' : 'dna',
+                projectId: projectIdx > -1 && cols[projectIdx]?.trim() ? cols[projectIdx].trim() : (projects[0]?.id || ''),
+                batchId: batchIdx > -1 && cols[batchIdx]?.trim() ? cols[batchIdx].trim() : undefined,
+                sequence,
+              });
+              importedCount++;
+            }
+          } else if (ext === 'fasta' || ext === 'fa') {
+            const records = parseFasta(text);
+            for (const rec of records) {
+              await createSample({
+                name: rec.header || file.name.replace(/\.(fasta|fa)$/i, '') + `_${importedCount + 1}`,
+                description: `从 FASTA 文件 ${file.name} 导入`,
+                organism: 'Unknown',
+                sequenceType: 'dna',
+                projectId: projects[0]?.id || '',
+                sequence: rec.sequence,
+              });
+              importedCount++;
+            }
+          } else if (ext === 'fastq' || ext === 'fq') {
+            const records = parseFastq(text);
+            for (const rec of records) {
+              await createSample({
+                name: rec.header || file.name.replace(/\.(fastq|fq)$/i, '') + `_${importedCount + 1}`,
+                description: `从 FASTQ 文件 ${file.name} 导入`,
+                organism: 'Unknown',
+                sequenceType: 'dna',
+                projectId: projects[0]?.id || '',
+                sequence: rec.sequence,
+                qualityScore: rec.quality,
+              });
+              importedCount++;
+            }
+          } else {
+            failedCount++;
+          }
+        } catch (err) {
+          console.error('Import error:', err);
+          failedCount++;
+        }
+      }
+
+      if (importedCount > 0) {
+        alert(`导入成功！\n成功导入 ${importedCount} 个样本${failedCount > 0 ? `，失败 ${failedCount} 个文件` : ''}`);
+      } else {
+        alert(`导入失败：未能解析文件内容`);
       }
     };
     input.click();
+  };
+
+  const generateRandomSequence = () => {
+    const bases = ['A', 'T', 'G', 'C'];
+    let seq = '';
+    for (let i = 0; i < 500; i++) {
+      seq += bases[Math.floor(Math.random() * 4)];
+    }
+    return seq;
+  };
+
+  const parseFasta = (text: string): { header: string; sequence: string }[] => {
+    const results: { header: string; sequence: string }[] = [];
+    const lines = text.split('\n');
+    let currentHeader = '';
+    let currentSeq = '';
+    for (const line of lines) {
+      if (line.startsWith('>')) {
+        if (currentHeader && currentSeq) {
+          results.push({ header: currentHeader, sequence: currentSeq });
+        }
+        currentHeader = line.slice(1).trim();
+        currentSeq = '';
+      } else {
+        currentSeq += line.trim();
+      }
+    }
+    if (currentHeader && currentSeq) {
+      results.push({ header: currentHeader, sequence: currentSeq });
+    }
+    return results;
+  };
+
+  const parseFastq = (text: string): { header: string; sequence: string; quality: string }[] => {
+    const results: { header: string; sequence: string; quality: string }[] = [];
+    const lines = text.split('\n');
+    for (let i = 0; i + 3 < lines.length; i += 4) {
+      if (lines[i].startsWith('@')) {
+        const header = lines[i].slice(1).trim();
+        const sequence = lines[i + 1].trim();
+        const quality = lines[i + 3].trim();
+        if (sequence) {
+          results.push({ header, sequence, quality });
+        }
+      }
+    }
+    return results;
   };
 
   const handleViewDetail = (sample: Sample) => {
@@ -159,13 +294,27 @@ export default function Samples() {
       alert('请先选择要分析的样本');
       return;
     }
+    setBatchAnalyzeForm({
+      toolId: 'bwa',
+      threads: 4,
+      outputFormat: 'bam',
+      analysisName: `批量分析_${new Date().toLocaleDateString('zh-CN')}`,
+    });
     setShowBatchAnalyzeModal(true);
   };
 
   const startBatchAnalyze = async () => {
     if (selectedSampleIds.length === 0) return;
+    if (!batchAnalyzeForm.analysisName.trim()) {
+      alert('请输入分析名称');
+      return;
+    }
+    await batchAnalysis(selectedSampleIds, batchAnalyzeForm.toolId, {
+      threads: batchAnalyzeForm.threads,
+      outputFormat: batchAnalyzeForm.outputFormat,
+    });
     setShowBatchAnalyzeModal(false);
-    alert(`已开始对 ${selectedSampleIds.length} 个样本进行批量分析`);
+    alert(`已开始对 ${selectedSampleIds.length} 个样本执行 ${batchAnalyzeForm.toolId.toUpperCase()} 批量分析`);
   };
 
   return (
@@ -255,7 +404,11 @@ export default function Samples() {
             </div>
             <div>
               <label className="block text-sm text-slate-400 mb-2">序列类型</label>
-              <select className="select-field">
+              <select
+                className="select-field"
+                value={selectedSequenceType}
+                onChange={(e) => setSelectedSequenceType(e.target.value)}
+              >
                 <option value="">全部类型</option>
                 <option value="dna">DNA</option>
                 <option value="rna">RNA</option>
@@ -531,18 +684,29 @@ export default function Samples() {
               </div>
               <div>
                 <label className="block text-sm text-slate-400 mb-2">分析工具</label>
-                <select className="select-field w-full" defaultValue="bwa">
+                <select
+                  className="select-field w-full"
+                  value={batchAnalyzeForm.toolId}
+                  onChange={(e) => setBatchAnalyzeForm({ ...batchAnalyzeForm, toolId: e.target.value as any })}
+                >
                   <option value="bwa">BWA - Burrows-Wheeler Aligner</option>
-                  <option value="blast">BLAST - 基础局部比对搜索工具</option>
+                  <option value="blastn">BLASTn - 核酸局部比对</option>
+                  <option value="blastp">BLASTp - 蛋白局部比对</option>
                   <option value="bowtie2">Bowtie 2 - 快速短序列比对</option>
                   <option value="minimap2">Minimap2 - 长序列比对</option>
                   <option value="mafft">MAFFT - 多序列比对</option>
+                  <option value="muscle">MUSCLE - 多序列比对</option>
+                  <option value="clustalw">ClustalW - 多序列比对</option>
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm text-slate-400 mb-2">线程数</label>
-                  <select className="select-field w-full" defaultValue="4">
+                  <select
+                    className="select-field w-full"
+                    value={String(batchAnalyzeForm.threads)}
+                    onChange={(e) => setBatchAnalyzeForm({ ...batchAnalyzeForm, threads: parseInt(e.target.value) })}
+                  >
                     <option value="2">2 线程</option>
                     <option value="4">4 线程</option>
                     <option value="8">8 线程</option>
@@ -551,10 +715,15 @@ export default function Samples() {
                 </div>
                 <div>
                   <label className="block text-sm text-slate-400 mb-2">输出格式</label>
-                  <select className="select-field w-full" defaultValue="bam">
+                  <select
+                    className="select-field w-full"
+                    value={batchAnalyzeForm.outputFormat}
+                    onChange={(e) => setBatchAnalyzeForm({ ...batchAnalyzeForm, outputFormat: e.target.value })}
+                  >
                     <option value="sam">SAM</option>
                     <option value="bam">BAM</option>
                     <option value="cram">CRAM</option>
+                    <option value="fasta">FASTA</option>
                   </select>
                 </div>
               </div>
@@ -564,7 +733,8 @@ export default function Samples() {
                   type="text"
                   className="input-field w-full"
                   placeholder="批量分析 - 样本组A"
-                  defaultValue={`批量分析_${new Date().toLocaleDateString('zh-CN')}`}
+                  value={batchAnalyzeForm.analysisName}
+                  onChange={(e) => setBatchAnalyzeForm({ ...batchAnalyzeForm, analysisName: e.target.value })}
                 />
               </div>
             </div>
