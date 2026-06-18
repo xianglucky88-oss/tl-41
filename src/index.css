@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-slate-950 text-slate-100 font-display antialiased;
+    background-image:
+      radial-gradient(circle at 20% 20%, rgba(20, 184, 166, 0.08) 0%, transparent 50%),
+      radial-gradient(circle at 80% 80%, rgba(245, 158, 11, 0.06) 0%, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-slate-900;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-slate-700 rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-600;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-slate-900/60 backdrop-blur-sm border border-slate-800 rounded-2xl shadow-card;
+  }
+
+  .card-hover {
+    @apply transition-all duration-300 hover:bg-slate-900/80 hover:border-primary-500/30 hover:shadow-glow;
+  }
+
+  .btn-primary {
+    @apply px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white font-medium rounded-xl transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-secondary {
+    @apply px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-medium rounded-xl border border-slate-700 transition-all duration-200;
+  }
+
+  .btn-accent {
+    @apply px-4 py-2 bg-accent-600 hover:bg-accent-500 text-white font-medium rounded-xl transition-all duration-200;
+  }
+
+  .input-field {
+    @apply w-full px-4 py-2.5 bg-slate-800/50 border border-slate-700 rounded-xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-all duration-200;
+  }
+
+  .select-field {
+    @apply w-full px-4 py-2.5 bg-slate-800/50 border border-slate-700 rounded-xl text-slate-100 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-all duration-200 cursor-pointer;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .status-completed {
+    @apply bg-emerald-500/20 text-emerald-400 border border-emerald-500/30;
+  }
+
+  .status-running {
+    @apply bg-blue-500/20 text-blue-400 border border-blue-500/30;
+  }
+
+  .status-pending {
+    @apply bg-amber-500/20 text-amber-400 border border-amber-500/30;
+  }
+
+  .status-failed {
+    @apply bg-red-500/20 text-red-400 border border-red-500/30;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:text-white hover:bg-slate-800/50 transition-all duration-200;
+  }
+
+  .nav-item-active {
+    @apply text-white bg-gradient-to-r from-primary-600/20 to-transparent border-l-2 border-primary-500;
+  }
+
+  .section-title {
+    @apply text-2xl font-semibold text-white mb-4 flex items-center gap-2;
+  }
+
+  .data-table {
+    @apply w-full border-collapse;
+  }
+
+  .data-table th {
+    @apply px-4 py-3 text-left text-xs font-medium text-slate-400 uppercase tracking-wider bg-slate-800/50 border-b border-slate-700;
+  }
+
+  .data-table td {
+    @apply px-4 py-3 text-sm text-slate-300 border-b border-slate-800;
+  }
+
+  .data-table tr:hover td {
+    @apply bg-slate-800/30;
+  }
+
+  .dna-base-a {
+    @apply text-green-400;
+  }
+
+  .dna-base-t {
+    @apply text-red-400;
+  }
+
+  .dna-base-g {
+    @apply text-yellow-400;
+  }
+
+  .dna-base-c {
+    @apply text-blue-400;
+  }
+
+  .dna-base-n {
+    @apply text-slate-500;
+  }
+
+  .sequence-display {
+    @apply font-mono text-sm leading-relaxed;
+  }
+
+  .step-connector {
+    @apply w-0.5 h-8 bg-slate-700 mx-6 my-1;
+  }
+
+  .tooltip {
+    @apply absolute z-50 px-3 py-2 text-sm bg-slate-800 text-white rounded-lg shadow-lg border border-slate-700 pointer-events-none animate-fade-in;
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, rgba(51, 65, 85, 0.4) 25%, rgba(71, 85, 105, 0.4) 50%, rgba(51, 65, 85, 0.4) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+}
