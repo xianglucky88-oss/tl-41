@@ -114,11 +114,18 @@ export default function AnalysisWorkbench() {
       await runAlignment(step.toolId, step.parameters, selectedSampleIds);
     }
 
+    const totalVars = Math.floor(100 + Math.random() * 1000);
+    const snpCount = Math.floor(totalVars * 0.85);
+    const indelCount = totalVars - snpCount;
+    const pathogenicCount = Math.floor(totalVars * 0.02);
     await updateAnalysis(newAnalysis.id, {
       status: 'completed',
       completedAt: new Date().toISOString(),
       resultSummary: {
-        totalVariants: Math.floor(100 + Math.random() * 1000),
+        totalVariants: totalVars,
+        snpCount,
+        indelCount,
+        pathogenicCount,
         alignedReads: Math.floor(1000000 + Math.random() * 10000000),
         alignmentRate: 95 + Math.random() * 5,
         meanQuality: 90 + Math.random() * 10,

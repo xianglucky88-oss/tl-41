@@ -144,6 +144,49 @@ export default function VariantComparison() {
     pathogenic: comparisonResults.filter(r => r.variant.clinicalSignificance === 'pathogenic').length,
   };
 
+  const handleExportResults = () => {
+    if (comparisonResults.length === 0) {
+      alert('没有可导出的比较结果');
+      return;
+    }
+    const headers = ['Chromosome', 'Position', 'Ref', 'Alt', 'Type', 'Gene', 'Effect', 'ClinicalSignificance', 'SharedBy', 'SampleCount', 'IsShared', 'IsUnique'];
+    const rows = comparisonResults.map(r => [
+      r.variant.chromosome,
+      r.variant.position,
+      r.variant.ref,
+      r.variant.alt,
+      r.variant.type,
+      r.variant.gene || '-',
+      r.variant.effect,
+      r.variant.clinicalSignificance,
+      r.sharedBy.join(';'),
+      r.sampleCount,
+      r.isShared ? 'Yes' : 'No',
+      r.isUnique ? 'Yes' : 'No',
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + encodeURIComponent([headers, ...rows].map(r => r.join(',')).join('\n'));
+    const link = document.createElement('a');
+    link.setAttribute('href', csvContent);
+    link.setAttribute('download', `variant_comparison_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    alert(`已导出 ${comparisonResults.length} 条比较结果`);
+  };
+
+  const handleExportVariantDetail = (variant: Variant) => {
+    const content = JSON.stringify(variant, null, 2);
+    const blob = new Blob([content], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `variant_${variant.chromosome}_${variant.position}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -152,7 +195,7 @@ export default function VariantComparison() {
           <p className="text-slate-400">跨样本比较变异位点，识别共有和特有变异</p>
         </div>
         <div className="flex items-center gap-3">
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={handleExportResults}>
             <Download size={16} />
             导出结果
           </button>
@@ -466,6 +509,7 @@ export default function VariantComparison() {
         <VariantDetailModal
           variant={selectedVariant}
           onClose={() => setSelectedVariant(null)}
+          onExport={handleExportVariantDetail}
           sampleNames={selectedVariant.sampleId ? [getSampleName(selectedVariant.sampleId)] : []}
         />
       )}
@@ -476,10 +520,11 @@ export default function VariantComparison() {
 interface VariantDetailModalProps {
   variant: Variant;
   onClose: () => void;
+  onExport: (variant: Variant) => void;
   sampleNames: string[];
 }
 
-function VariantDetailModal({ variant, onClose, sampleNames }: VariantDetailModalProps) {
+function VariantDetailModal({ variant, onClose, onExport, sampleNames }: VariantDetailModalProps) {
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-8">
       <div className="bg-slate-900 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col animate-slide-up">
@@ -633,7 +678,7 @@ function VariantDetailModal({ variant, onClose, sampleNames }: VariantDetailModa
 
         <div className="p-6 border-t border-slate-700 flex items-center justify-end gap-3">
           <button className="btn-secondary" onClick={onClose}>关闭</button>
-          <button className="btn-primary flex items-center gap-2">
+          <button className="btn-primary flex items-center gap-2" onClick={() => onExport(variant)}>
             <Download size={16} />
             导出详情
           </button>

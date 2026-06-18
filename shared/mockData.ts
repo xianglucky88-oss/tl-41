@@ -301,10 +301,59 @@ export const MOCK_ANALYSES: AnalysisRecord[] = [
     },
     resultSummary: {
       totalVariants: 2456,
+      snpCount: 2100,
+      indelCount: 356,
+      pathogenicCount: 12,
       alignedReads: 12345678,
       alignmentRate: 98.7,
       meanQuality: 94.5,
     },
+    versionHistory: [
+      {
+        version: 1,
+        timestamp: '2026-04-01T09:00:00Z',
+        changedBy: '李技术员',
+        description: '初始版本：基础比对配置，4线程运行',
+        steps: [
+          {
+            stepId: 'step_001', stepName: '质量控制', toolId: 'bwa', toolVersion: '0.7.17',
+            parameters: { algorithm: 'mem', t: 4 }, startTime: '2026-04-01T09:05:00Z',
+            endTime: '2026-04-01T09:45:00Z', status: 'completed',
+            inputFileIds: ['file_001'], outputFileIds: ['file_002'], log: 'v1 QC'
+          }
+        ],
+        parametersSnapshot: { 'bwa.algorithm': 'mem', 'bwa.threads': 4 },
+        sampleIds: ['sample_001', 'sample_002', 'sample_003'],
+      },
+      {
+        version: 2,
+        timestamp: '2026-04-02T10:30:00Z',
+        changedBy: '李技术员',
+        description: '扩展样本数至5例，增加线程数至8，添加变异检测步骤',
+        steps: [
+          {
+            stepId: 'step_001', stepName: '质量控制', toolId: 'bwa', toolVersion: '0.7.17',
+            parameters: { algorithm: 'mem', t: 4, m: 19, T: 30 }, startTime: '2026-04-01T09:05:00Z',
+            endTime: '2026-04-01T09:45:00Z', status: 'completed',
+            inputFileIds: ['file_001', 'file_002'], outputFileIds: ['file_003'], log: '质量控制完成，共处理12.5M reads，Q30比例94.5%'
+          },
+          {
+            stepId: 'step_002', stepName: '基因组比对', toolId: 'bwa', toolVersion: '0.7.17',
+            parameters: { algorithm: 'mem', t: 8, m: 19, T: 30 }, startTime: '2026-04-01T09:45:00Z',
+            endTime: '2026-04-01T10:50:00Z', status: 'completed',
+            inputFileIds: ['file_003'], outputFileIds: ['file_004', 'file_005'], log: '比对完成，98.7% reads成功比对到参考基因组'
+          },
+          {
+            stepId: 'step_003', stepName: '变异检测', toolId: 'bwa', toolVersion: '0.7.17',
+            parameters: { algorithm: 'mem', t: 4 }, startTime: '2026-04-01T10:50:00Z',
+            endTime: '2026-04-01T11:30:00Z', status: 'completed',
+            inputFileIds: ['file_004'], outputFileIds: ['file_006'], log: '变异检测完成，共识别2,456个变异位点'
+          }
+        ],
+        parametersSnapshot: { 'bwa.algorithm': 'mem', 'bwa.threads': 8, 'bwa.minSeedLength': 19, 'referenceGenome': 'GRCh38.p14' },
+        sampleIds: ['sample_001', 'sample_002', 'sample_003', 'sample_004', 'sample_005'],
+      }
+    ],
   },
   {
     id: 'analysis_002',
@@ -356,10 +405,28 @@ export const MOCK_ANALYSES: AnalysisRecord[] = [
     },
     resultSummary: {
       totalVariants: 23,
+      snpCount: 18,
+      indelCount: 5,
+      pathogenicCount: 3,
       alignedReads: 456789,
       alignmentRate: 99.2,
       meanQuality: 96.8,
     },
+    versionHistory: [
+      {
+        version: 1,
+        timestamp: '2026-04-15T14:00:00Z',
+        changedBy: '李技术员',
+        description: '初始版本：EGFR基因变异注释分析',
+        steps: [],
+        parametersSnapshot: {
+          'targetGene': 'EGFR',
+          'annotationSources': ['VEP', 'ClinVar', 'COSMIC'],
+          'filterCriteria': 'QUAL > 20, DP > 10',
+        },
+        sampleIds: ['sample_001', 'sample_003'],
+      }
+    ],
   },
   {
     id: 'analysis_003',
@@ -410,10 +477,28 @@ export const MOCK_ANALYSES: AnalysisRecord[] = [
     },
     resultSummary: {
       totalVariants: 1567,
+      snpCount: 1423,
+      indelCount: 144,
+      pathogenicCount: 0,
       alignedReads: 8765432,
       alignmentRate: 97.8,
       meanQuality: 93.2,
     },
+    versionHistory: [
+      {
+        version: 1,
+        timestamp: '2026-03-10T10:00:00Z',
+        changedBy: '王实验员',
+        description: '初始版本：耐药菌MLST分型分析',
+        steps: [],
+        parametersSnapshot: {
+          'assembler': 'minimap2',
+          'mlstScheme': 'EcMLST',
+          'minCoverage': 10,
+        },
+        sampleIds: ['sample_010', 'sample_011', 'sample_012'],
+      }
+    ],
   },
   {
     id: 'analysis_004',
@@ -448,6 +533,21 @@ export const MOCK_ANALYSES: AnalysisRecord[] = [
       'mafThreshold': 0.05,
       'imputation': true,
     },
+    versionHistory: [
+      {
+        version: 1,
+        timestamp: '2026-06-18T08:00:00Z',
+        changedBy: '赵同学',
+        description: '初始版本：拟南芥GWAS分析，正在运行',
+        steps: [],
+        parametersSnapshot: {
+          'genotypeCaller': 'GATK',
+          'mafThreshold': 0.05,
+          'imputation': true,
+        },
+        sampleIds: ['sample_015', 'sample_016', 'sample_017', 'sample_018'],
+      }
+    ],
   },
   {
     id: 'analysis_005',
@@ -467,6 +567,21 @@ export const MOCK_ANALYSES: AnalysisRecord[] = [
       'inheritanceMode': 'autosomal_recessive',
       'filterFrequency': 0.01,
     },
+    versionHistory: [
+      {
+        version: 1,
+        timestamp: '2026-06-18T10:00:00Z',
+        changedBy: '刘技师',
+        description: '初始版本：罕见病患者基因诊断，待开始',
+        steps: [],
+        parametersSnapshot: {
+          'panel': 'NeuroMuscular',
+          'inheritanceMode': 'autosomal_recessive',
+          'filterFrequency': 0.01,
+        },
+        sampleIds: ['sample_021', 'sample_022'],
+      }
+    ],
   },
 ];
 

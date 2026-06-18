@@ -283,6 +283,43 @@ interface ReportDetailViewProps {
 function ReportDetailView({
   report, analysis, onBack, getProjectName, copyToClipboard, copiedField, formatDate
 }: ReportDetailViewProps) {
+  const handlePrint = () => {
+    window.print();
+    alert('正在打印报告...');
+  };
+
+  const handleShare = () => {
+    const shareData = {
+      title: report.title,
+      text: `DNA序列分析报告: ${report.title}`,
+      url: window.location.href,
+    };
+    if (navigator.share) {
+      navigator.share(shareData).catch(() => {});
+    } else {
+      navigator.clipboard.writeText(window.location.href).then(() => {
+        alert('报告链接已复制到剪贴板');
+      }).catch(() => {
+        alert(`报告链接: ${window.location.href}`);
+      });
+    }
+  };
+
+  const handleExportPDF = () => {
+    const content = `# ${report.title}\n\n生成时间: ${formatDate(report.generatedAt)}\n生成者: ${report.generatedBy}\n\n---\n\n` +
+      report.sections.map(s => `## ${s.title}\n\n${typeof s.content === 'string' ? s.content : JSON.stringify(s.content, null, 2)}`).join('\n\n---\n\n');
+    const blob = new Blob([content], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${report.title.replace(/\s+/g, '_')}.md`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    alert(`报告已导出为 Markdown 格式: ${report.title}`);
+  };
+
   const renderSection = (section: ReportSection) => {
     switch (section.type) {
       case 'text':
@@ -378,15 +415,15 @@ function ReportDetailView({
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={handlePrint}>
             <Printer size={16} />
             打印
           </button>
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={handleShare}>
             <Share2 size={16} />
             分享
           </button>
-          <button className="btn-primary flex items-center gap-2">
+          <button className="btn-primary flex items-center gap-2" onClick={handleExportPDF}>
             <Download size={16} />
             导出 PDF
           </button>

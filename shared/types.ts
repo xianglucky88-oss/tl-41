@@ -77,6 +77,16 @@ export interface AnalysisStep {
   log: string;
 }
 
+export interface AnalysisVersionHistory {
+  version: number;
+  timestamp: string;
+  changedBy: string;
+  description: string;
+  steps: AnalysisStep[];
+  parametersSnapshot: Record<string, unknown>;
+  sampleIds: string[];
+}
+
 export interface AnalysisRecord {
   id: string;
   name: string;
@@ -96,10 +106,14 @@ export interface AnalysisRecord {
   parametersSnapshot: Record<string, unknown>;
   resultSummary?: {
     totalVariants: number;
+    snpCount: number;
+    indelCount: number;
+    pathogenicCount: number;
     alignedReads: number;
     alignmentRate: number;
     meanQuality: number;
   };
+  versionHistory: AnalysisVersionHistory[];
 }
 
 export interface Variant {

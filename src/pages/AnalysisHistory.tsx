@@ -62,6 +62,31 @@ export default function AnalysisHistory() {
     alert(`分析 "${analysis.name}" 已加载到工作台，可修改参数后重新运行。`);
   };
 
+  const handleExportAnalyses = () => {
+    if (filteredAnalyses.length === 0) {
+      alert('没有可导出的分析记录');
+      return;
+    }
+    const headers = ['ID', 'Name', 'Tool', 'Status', 'Project', 'Batch', 'Samples', 'Version', 'StartTime', 'EndTime'];
+    const rows = filteredAnalyses.map(a => [
+      a.id, a.name, a.steps[0]?.toolId || '-', a.status,
+      getProjectName(a.projectId),
+      getBatchName(a.batchId),
+      a.sampleIds.length,
+      a.version,
+      a.startedAt || '-',
+      a.completedAt || '-',
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + encodeURIComponent([headers, ...rows].map(r => r.join(',')).join('\n'));
+    const link = document.createElement('a');
+    link.setAttribute('href', csvContent);
+    link.setAttribute('download', `analysis_history_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    alert(`已导出 ${filteredAnalyses.length} 条分析记录`);
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -78,7 +103,7 @@ export default function AnalysisHistory() {
             <RefreshCw size={16} className={loading ? 'animate-spin' : ''} />
             刷新
           </button>
-          <button className="btn-primary flex items-center gap-2">
+          <button className="btn-primary flex items-center gap-2" onClick={handleExportAnalyses}>
             <Download size={16} />
             导出记录
           </button>
@@ -481,13 +506,30 @@ function StepTimelineItem({
 function VersionHistoryModal({
   analysis, onClose, getToolName
 }: { analysis: AnalysisRecord; onClose: () => void; getToolName: (id: string) => string }) {
+  const { updateAnalysis } = useAnalysisStore();
+
+  const handleRestoreVersion = async (version: number) => {
+    const versionData = analysis.versionHistory.find(v => v.version === version);
+    if (!versionData) return;
+    const confirmed = confirm(`确定要恢复到版本 v${version} 吗？这将创建新版本并保留历史记录。`);
+    if (!confirmed) return;
+    await updateAnalysis(analysis.id, {
+      steps: versionData.steps,
+      parametersSnapshot: versionData.parametersSnapshot,
+      sampleIds: versionData.sampleIds,
+    }, `恢复到版本 v${version}：${versionData.description}`);
+    alert('版本恢复成功！已创建新版本。');
+  };
+
+  const sortedHistory = [...analysis.versionHistory].sort((a, b) => b.version - a.version);
+
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-3xl max-h-[80vh] overflow-hidden">
         <div className="p-5 border-b border-slate-700 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-white">版本历史 - {analysis.name}</h2>
-            <p className="text-sm text-slate-400">当前版本 v{analysis.version}</p>
+            <p className="text-sm text-slate-400">当前版本 v{analysis.version} · 共 {analysis.versionHistory.length} 个历史版本</p>
           </div>
           <button
             className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
@@ -498,33 +540,54 @@ function VersionHistoryModal({
         </div>
         <div className="p-5 overflow-y-auto max-h-[calc(80vh-80px)]">
           <div className="space-y-4">
-            {Array.from({ length: analysis.version }, (_, i) => analysis.version - i).map((v) => (
-              <div key={v} className="card p-4 bg-slate-800/50">
+            {sortedHistory.map((v) => (
+              <div key={v.version} className="card p-4 bg-slate-800/50">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white font-bold">
-                      v{v}
+                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold ${
+                      v.version === analysis.version
+                        ? 'bg-gradient-to-br from-primary-500 to-primary-600'
+                        : 'bg-slate-700'
+                    }`}>
+                      v{v.version}
                     </div>
                     <div>
-                      <p className="font-medium text-white">{analysis.name}</p>
+                      <p className="font-medium text-white">{v.description}</p>
                       <p className="text-xs text-slate-500">
-                        {new Date(analysis.createdAt).toLocaleString('zh-CN')} · {analysis.createdBy}
+                        {new Date(v.timestamp).toLocaleString('zh-CN')} · {v.changedBy}
                       </p>
                     </div>
                   </div>
-                  {v === analysis.version ? (
+                  {v.version === analysis.version ? (
                     <span className="badge bg-primary-500/20 text-primary-400">当前版本</span>
                   ) : (
-                    <button className="btn-secondary text-xs">恢复此版本</button>
+                    <button
+                      className="btn-secondary text-xs"
+                      onClick={() => handleRestoreVersion(v.version)}
+                    >
+                      恢复此版本
+                    </button>
                   )}
                 </div>
                 <div className="text-sm text-slate-400 space-y-1">
-                  <p><span className="text-slate-500">分析步骤：</span>{analysis.steps.map(s => getToolName(s.toolId)).join(' → ')}</p>
-                  <p><span className="text-slate-500">样本数：</span>{analysis.sampleIds.length} 个</p>
-                  {analysis.resultSummary && (
-                    <p><span className="text-slate-500">检出变异：</span>{analysis.resultSummary.totalVariants} 个</p>
+                  <p><span className="text-slate-500">分析步骤：</span>{v.steps.length > 0 ? v.steps.map(s => getToolName(s.toolId)).join(' → ') : '-'}</p>
+                  <p><span className="text-slate-500">样本数：</span>{v.sampleIds.length} 个</p>
+                  {Object.keys(v.parametersSnapshot).length > 0 && (
+                    <p><span className="text-slate-500">参数配置：</span>{Object.keys(v.parametersSnapshot).length} 项</p>
                   )}
                 </div>
+                {v.steps.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-700/50">
+                    <p className="text-xs text-slate-500 mb-2">步骤详情：</p>
+                    <div className="flex flex-wrap gap-1">
+                      {v.steps.map(s => (
+                        <span key={s.stepId} className="text-xs px-2 py-1 bg-slate-900/50 rounded text-slate-400">
+                          {s.stepName} ({getToolName(s.toolId)})
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>

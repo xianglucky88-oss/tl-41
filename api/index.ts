@@ -210,14 +210,6 @@ app.get('/api/variants', (req, res) => {
   res.json(successResponse(result));
 });
 
-app.get('/api/variants/:id', (req, res) => {
-  const variant = MOCK_VARIANTS.find((v: Variant) => v.id === req.params.id);
-  if (!variant) {
-    return res.status(404).json(errorResponse('变异位点不存在'));
-  }
-  res.json(successResponse(variant));
-});
-
 app.get('/api/variants/compare', (req, res) => {
   const { sampleIds } = req.query;
   if (!sampleIds) {
@@ -256,6 +248,14 @@ app.get('/api/variants/compare', (req, res) => {
 
   const result = paginate(comparisonResult, { page: 1, pageSize: 100 });
   res.json(successResponse(result));
+});
+
+app.get('/api/variants/:id', (req, res) => {
+  const variant = MOCK_VARIANTS.find((v: Variant) => v.id === req.params.id);
+  if (!variant) {
+    return res.status(404).json(errorResponse('变异位点不存在'));
+  }
+  res.json(successResponse(variant));
 });
 
 app.get('/api/tools', (req, res) => {
@@ -314,23 +314,109 @@ app.post('/api/reports', (req, res) => {
     return res.status(404).json(errorResponse('分析记录不存在'));
   }
 
+  const commandLines = analysis.steps.map(step => {
+    const tool = ALIGNMENT_TOOLS.find(t => t.id === step.toolId);
+    const params = Object.entries(step.parameters)
+      .map(([k, v]) => `--${k} ${v}`)
+      .join(' ');
+    return `${step.toolId} -i input_${step.stepId}.fastq -o output_${step.stepId}.bam ${params}`.trim();
+  });
+
+  const inputFileHashes: Record<string, string> = {};
+  analysis.sampleIds.forEach((sampleId: string, idx: number) => {
+    const sample = MOCK_SAMPLES.find((s: Sample) => s.id === sampleId);
+    if (sample) {
+      let hash = 0;
+      const str = sample.sequence.substring(0, 100);
+      for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+      }
+      inputFileHashes[`${sample.name}.fastq`] = `sha256:${Math.abs(hash).toString(16).padStart(16, '0')}${idx.toString().padStart(8, '0')}a1b2c3d4e5f6`;
+    }
+  });
+
+  const analysisVariants = MOCK_VARIANTS.filter((v: Variant) => analysis.sampleIds.includes(v.sampleId));
+  const variantSummary = {
+    totalVariants: analysis.resultSummary?.totalVariants ?? analysisVariants.length,
+    snpCount: analysis.resultSummary?.snpCount ?? analysisVariants.filter(v => v.type === 'SNP').length,
+    indelCount: analysis.resultSummary?.indelCount ?? analysisVariants.filter(v => v.type !== 'SNP').length,
+    pathogenicCount: analysis.resultSummary?.pathogenicCount ?? analysisVariants.filter(v => v.clinicalSignificance === 'pathogenic').length,
+    alignedReads: analysis.resultSummary?.alignedReads ?? 100000,
+    alignmentRate: analysis.resultSummary?.alignmentRate ?? 97.5 + Math.random() * 2,
+    meanQuality: analysis.resultSummary?.meanQuality ?? 30 + Math.random() * 10,
+  };
+
+  const sampleTableData = analysis.sampleIds.map((sampleId: string) => {
+    const sample = MOCK_SAMPLES.find((s: Sample) => s.id === sampleId);
+    const sampleVariants = analysisVariants.filter(v => v.sampleId === sampleId);
+    return {
+      样本名称: sample?.name || sampleId,
+      物种: sample?.organism || '-',
+      序列长度: sample ? `${sample.sequence.length.toLocaleString()} bp` : '-',
+      检出变异: sampleVariants.length.toLocaleString(),
+      SNP: sampleVariants.filter(v => v.type === 'SNP').length,
+      Indel: sampleVariants.filter(v => v.type !== 'SNP').length,
+      状态: '分析完成',
+    };
+  });
+
+  const variantTypeData: Record<string, number> = {
+    'SNP': analysisVariants.filter(v => v.type === 'SNP').length,
+    '插入': analysisVariants.filter(v => v.type === 'INSERTION').length,
+    '缺失': analysisVariants.filter(v => v.type === 'DELETION' || v.type === 'INDEL').length,
+  };
+
+  const stepDescriptions = analysis.steps.length > 0
+    ? `本次分析采用 ${analysis.steps.map(s => ALIGNMENT_TOOLS.find(t => t.id === s.toolId)?.name || s.toolId).join(' → ')} 工具链，对 ${analysis.sampleIds.length} 个样本进行了全流程分析。
+共执行 ${analysis.steps.length} 个分析步骤，整体比对率达到 ${variantSummary.alignmentRate.toFixed(2)}%，平均测序质量 Q${variantSummary.meanQuality.toFixed(0)}。
+共检出 ${variantSummary.totalVariants.toLocaleString()} 个变异位点，其中包含 ${variantSummary.snpCount.toLocaleString()} 个SNP、${variantSummary.indelCount.toLocaleString()} 个Indel变异。
+在临床意义层面，共发现 ${variantSummary.pathogenicCount.toLocaleString()} 个致病性变异位点，建议进行后续验证实验。`
+    : '本分析为基础比对分析，包含序列比对和质量控制步骤。';
+
   const newReport: AnalysisReport = {
     id: `report_${String(MOCK_REPORTS.length + 1).padStart(3, '0')}`,
     analysisId,
-    title: `${analysis.name} - 分析报告`,
+    title: `${analysis.name} - 完整分析报告`,
     generatedAt: new Date().toISOString(),
-    generatedBy: 'current_user',
+    generatedBy: analysis.createdBy || 'current_user',
     sections: [
-      { id: 'sec1', title: '分析概述', type: 'text', content: analysis.description },
-      { id: 'sec2', title: '样本信息', type: 'table', content: analysis.sampleIds.map((id: string) => ({ sampleId: id, status: '已分析' })) },
-      { id: 'sec3', title: '分析参数', type: 'code', content: JSON.stringify(analysis.parametersSnapshot, null, 2) },
-      { id: 'sec4', title: '结果统计', type: 'chart', content: analysis.resultSummary || { totalVariants: 0 } },
+      {
+        id: 'sec1',
+        title: '分析概述',
+        type: 'text',
+        content: `分析项目：${analysis.name}\n\n项目描述：${analysis.description}\n\n分析版本：v${analysis.version}\n\n${stepDescriptions}`
+      },
+      {
+        id: 'sec2',
+        title: '样本信息表',
+        type: 'table',
+        content: sampleTableData
+      },
+      {
+        id: 'sec3',
+        title: '变异类型分布统计',
+        type: 'chart',
+        content: variantTypeData
+      },
+      {
+        id: 'sec4',
+        title: '完整参数配置',
+        type: 'code',
+        content: JSON.stringify({
+          全局参数: analysis.parametersSnapshot,
+          步骤参数: analysis.steps.reduce((acc: Record<string, unknown>, step) => {
+            acc[step.stepName] = step.parameters;
+            return acc;
+          }, {})
+        }, null, 2)
+      },
     ],
     reproducibilityInfo: {
       softwareVersions: ALIGNMENT_TOOLS.reduce((acc: Record<string, string>, t) => ({ ...acc, [t.id]: t.version }), {}),
       parameters: analysis.parametersSnapshot,
-      commandLines: [],
-      inputFileHashes: {},
+      commandLines: commandLines,
+      inputFileHashes: inputFileHashes,
     },
   };
 

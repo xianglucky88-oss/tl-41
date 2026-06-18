@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { FlaskConical, TestTube, Workflow, GitCompare, TrendingUp, Activity, AlertTriangle, ChevronRight, Zap } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import StatusBadge from '@/components/StatusBadge';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 interface Stats {
   projects: { total: number; active: number; completed: number };
@@ -15,6 +15,7 @@ export default function Dashboard() {
   const { projects, analyses, samples, variants } = useAnalysisStore();
   const [stats, setStats] = useState<Stats | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchStats = async () => {
@@ -103,7 +104,7 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold text-white mb-2">基因组分析工作台</h1>
           <p className="text-slate-400">欢迎回来，这里是您的实验室数据分析概览</p>
         </div>
-        <button className="btn-primary flex items-center gap-2">
+        <button className="btn-primary flex items-center gap-2" onClick={() => navigate('/workbench')}>
           <Zap size={18} />
           新建分析
         </button>

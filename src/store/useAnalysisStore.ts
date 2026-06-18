@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport } from '@shared/types';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory } from '@shared/types';
 import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
@@ -36,7 +36,7 @@ interface AnalysisActions {
   setFilters: (filters: Partial<AnalysisState['filters']>) => void;
   runAlignment: (toolId: AlignmentTool, params: Record<string, string | number | boolean>, sampleIds: string[]) => Promise<void>;
   createAnalysis: (data: Partial<AnalysisRecord>) => Promise<AnalysisRecord>;
-  updateAnalysis: (id: string, data: Partial<AnalysisRecord>) => Promise<void>;
+  updateAnalysis: (id: string, data: Partial<AnalysisRecord>, changeDescription?: string) => Promise<void>;
   fetchProjects: () => Promise<void>;
   fetchBatches: (projectId?: string) => Promise<void>;
   fetchSamples: (batchId?: string, projectId?: string) => Promise<void>;
@@ -45,17 +45,50 @@ interface AnalysisActions {
   fetchReports: (analysisId?: string) => Promise<void>;
   generateReport: (analysisId: string) => Promise<AnalysisReport>;
   clearSelection: () => void;
+  createProject: (data: Partial<Project>) => Promise<Project>;
+  createSample: (data: Partial<Sample>) => Promise<Sample>;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+const computeFileHash = (sample: Sample, idx: number): string => {
+  let hash = 0;
+  const str = sample.sequence.substring(0, 100);
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) - hash) + str.charCodeAt(i);
+    hash |= 0;
+  }
+  return `sha256:${Math.abs(hash).toString(16).padStart(16, '0')}${idx.toString().padStart(8, '0')}a1b2c3d4e5f6`;
+};
+
+const initAnalysisWithHistory = (analysis: AnalysisRecord): AnalysisRecord => {
+  if (analysis.versionHistory && analysis.versionHistory.length > 0) {
+    return analysis;
+  }
+  return {
+    ...analysis,
+    versionHistory: [{
+      version: analysis.version,
+      timestamp: analysis.createdAt,
+      changedBy: analysis.createdBy,
+      description: '初始分析版本',
+      steps: analysis.steps,
+      parametersSnapshot: analysis.parametersSnapshot,
+      sampleIds: analysis.sampleIds,
+    }],
+  };
+};
+
+const initializedAnalyses = MOCK_ANALYSES.map(initAnalysisWithHistory);
+const initializedReports = MOCK_REPORTS;
 
 export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, get) => ({
   projects: MOCK_PROJECTS,
   batches: MOCK_BATCHES,
   samples: MOCK_SAMPLES,
-  analyses: MOCK_ANALYSES,
+  analyses: initializedAnalyses,
   variants: MOCK_VARIANTS,
-  reports: MOCK_REPORTS,
+  reports: initializedReports,
   alignmentTools: ALIGNMENT_TOOLS,
   currentProject: null,
   currentBatch: null,
@@ -76,7 +109,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
 
   fetchProjects: async () => {
     set({ loading: true });
-    await delay(300);
+    await delay(200);
     set({ projects: MOCK_PROJECTS, loading: false });
   },
 
@@ -100,8 +133,8 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
 
   fetchAnalyses: async (projectId, batchId) => {
     set({ loading: true });
-    await delay(300);
-    let analyses = MOCK_ANALYSES;
+    await delay(200);
+    let analyses = get().analyses;
     if (projectId) analyses = analyses.filter(a => a.projectId === projectId);
     if (batchId) analyses = analyses.filter(a => a.batchId === batchId);
     set({ analyses, loading: false });
@@ -109,7 +142,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
 
   fetchVariants: async (analysisId, sampleIds) => {
     set({ loading: true });
-    await delay(300);
+    await delay(200);
     let variants = MOCK_VARIANTS;
     if (analysisId) variants = variants.filter(v => v.analysisId === analysisId);
     if (sampleIds && sampleIds.length > 0) {
@@ -122,8 +155,8 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
     set({ loading: true });
     await delay(200);
     const reports = analysisId
-      ? MOCK_REPORTS.filter(r => r.analysisId === analysisId)
-      : MOCK_REPORTS;
+      ? get().reports.filter(r => r.analysisId === analysisId)
+      : get().reports;
     set({ reports, loading: false });
   },
 
@@ -137,6 +170,46 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
         )
       );
       set({ alignmentResults: results, loading: false });
+
+      const currentAnalysis = get().currentAnalysis;
+      if (currentAnalysis && currentAnalysis.steps.length > 0) {
+        const totalVars = 100 + Math.floor(Math.random() * 900);
+        const completedAnalysis: AnalysisRecord = {
+          ...currentAnalysis,
+          status: 'completed',
+          completedAt: new Date().toISOString(),
+          resultSummary: {
+            totalVariants: totalVars,
+            snpCount: Math.floor(totalVars * 0.85),
+            indelCount: Math.floor(totalVars * 0.15),
+            pathogenicCount: Math.floor(totalVars * 0.02),
+            alignedReads: Math.floor(Math.random() * 10000000) + 1000000,
+            alignmentRate: 95 + Math.random() * 4.9,
+            meanQuality: 30 + Math.random() * 20,
+          },
+        };
+
+        const newVersionHistory: AnalysisVersionHistory = {
+          version: completedAnalysis.version,
+          timestamp: new Date().toISOString(),
+          changedBy: completedAnalysis.createdBy,
+          description: '运行完成，生成比对结果',
+          steps: completedAnalysis.steps,
+          parametersSnapshot: completedAnalysis.parametersSnapshot,
+          sampleIds: completedAnalysis.sampleIds,
+        };
+
+        completedAnalysis.versionHistory = [...completedAnalysis.versionHistory, newVersionHistory];
+
+        set(state => ({
+          analyses: state.analyses.map(a =>
+            a.id === completedAnalysis.id ? completedAnalysis : a
+          ),
+          currentAnalysis: completedAnalysis,
+        }));
+
+        await get().generateReport(completedAnalysis.id);
+      }
     } catch (error) {
       set({ error: '比对失败，请检查参数后重试', loading: false });
     }
@@ -144,7 +217,9 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
 
   createAnalysis: async (data) => {
     set({ loading: true });
-    await delay(500);
+    await delay(400);
+    const now = new Date().toISOString();
+    const steps = data.steps || [];
     const newAnalysis: AnalysisRecord = {
       id: `analysis_${String(get().analyses.length + 1).padStart(3, '0')}`,
       name: data.name || '新建分析',
@@ -153,13 +228,25 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       sampleIds: data.sampleIds || [],
       description: data.description || '',
       status: 'pending',
-      createdAt: new Date().toISOString(),
-      createdBy: '当前用户',
+      createdAt: now,
+      startedAt: undefined,
+      completedAt: undefined,
+      createdBy: data.createdBy || '当前用户',
       version: 1,
+      parentAnalysisId: data.parentAnalysisId,
       currentStep: 0,
-      steps: data.steps || [],
+      steps: steps,
       parametersSnapshot: data.parametersSnapshot || {},
-      ...data,
+      resultSummary: data.resultSummary,
+      versionHistory: [{
+        version: 1,
+        timestamp: now,
+        changedBy: data.createdBy || '当前用户',
+        description: '分析任务创建',
+        steps: steps,
+        parametersSnapshot: data.parametersSnapshot || {},
+        sampleIds: data.sampleIds || [],
+      }],
     };
     set(state => ({
       analyses: [...state.analyses, newAnalysis],
@@ -169,48 +256,211 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
     return newAnalysis;
   },
 
-  updateAnalysis: async (id, data) => {
+  updateAnalysis: async (id, data, changeDescription) => {
     set({ loading: true });
     await delay(300);
-    set(state => ({
-      analyses: state.analyses.map(a =>
-        a.id === id ? { ...a, ...data, version: a.version + 1 } : a
-      ),
-      currentAnalysis: state.currentAnalysis?.id === id
-        ? { ...state.currentAnalysis, ...data, version: state.currentAnalysis.version + 1 }
-        : state.currentAnalysis,
-      loading: false,
-    }));
+    const now = new Date().toISOString();
+    set(state => {
+      const oldAnalysis = state.analyses.find(a => a.id === id);
+      if (!oldAnalysis) return { loading: false };
+
+      const newVersion = oldAnalysis.version + 1;
+      const updatedSteps = data.steps ?? oldAnalysis.steps;
+      const updatedParams = data.parametersSnapshot ?? oldAnalysis.parametersSnapshot;
+      const updatedSamples = data.sampleIds ?? oldAnalysis.sampleIds;
+
+      const historyEntry: AnalysisVersionHistory = {
+        version: newVersion,
+        timestamp: now,
+        changedBy: '当前用户',
+        description: changeDescription || '参数更新',
+        steps: updatedSteps,
+        parametersSnapshot: updatedParams,
+        sampleIds: updatedSamples,
+      };
+
+      const updatedAnalysis: AnalysisRecord = {
+        ...oldAnalysis,
+        ...data,
+        version: newVersion,
+        versionHistory: [...oldAnalysis.versionHistory, historyEntry],
+      };
+
+      return {
+        analyses: state.analyses.map(a =>
+          a.id === id ? updatedAnalysis : a
+        ),
+        currentAnalysis: state.currentAnalysis?.id === id
+          ? updatedAnalysis
+          : state.currentAnalysis,
+        loading: false,
+      };
+    });
   },
 
   generateReport: async (analysisId) => {
     set({ loading: true });
-    await delay(800);
+    await delay(600);
+
     const analysis = get().analyses.find(a => a.id === analysisId);
+    if (!analysis) {
+      set({ loading: false });
+      throw new Error('分析记录不存在');
+    }
+
+    const commandLines = analysis.steps.map(step => {
+      const params = Object.entries(step.parameters)
+        .map(([k, v]) => `--${k} ${v}`)
+        .join(' ');
+      return `${step.toolId} -i input_${step.stepId}.fastq -o output_${step.stepId}.bam ${params}`.trim();
+    });
+
+    const inputFileHashes: Record<string, string> = {};
+    analysis.sampleIds.forEach((sampleId, idx) => {
+      const sample = get().samples.find(s => s.id === sampleId);
+      if (sample) {
+        inputFileHashes[`${sample.name}.fastq`] = computeFileHash(sample, idx);
+      }
+    });
+
+    const analysisVariants = get().variants.filter(v => analysis.sampleIds.includes(v.sampleId));
+    const variantSummary = analysis.resultSummary || {
+      totalVariants: analysisVariants.length,
+      snpCount: analysisVariants.filter(v => v.type === 'SNP').length,
+      indelCount: analysisVariants.filter(v => v.type !== 'SNP').length,
+      pathogenicCount: analysisVariants.filter(v => v.clinicalSignificance === 'pathogenic').length,
+      alignmentRate: 97.5,
+      meanQuality: 35,
+    };
+
+    const sampleTableData = analysis.sampleIds.map(sampleId => {
+      const sample = get().samples.find(s => s.id === sampleId);
+      const sampleVariants = analysisVariants.filter(v => v.sampleId === sampleId);
+      return {
+        样本名称: sample?.name || sampleId,
+        物种: sample?.organism || '-',
+        序列长度: sample ? `${sample.sequence.length.toLocaleString()} bp` : '-',
+        检出变异: sampleVariants.length.toLocaleString(),
+        SNP: sampleVariants.filter(v => v.type === 'SNP').length,
+        Indel: sampleVariants.filter(v => v.type !== 'SNP').length,
+        状态: analysis.status === 'completed' ? '分析完成' : '进行中',
+      };
+    });
+
+    const variantTypeData: Record<string, number> = {
+      'SNP': analysisVariants.filter(v => v.type === 'SNP').length,
+      '插入': analysisVariants.filter(v => v.type === 'INSERTION').length,
+      '缺失': analysisVariants.filter(v => v.type === 'DELETION' || v.type === 'INDEL').length,
+    };
+
+    const toolNames = analysis.steps.length > 0
+      ? analysis.steps.map(s => ALIGNMENT_TOOLS.find(t => t.id === s.toolId)?.name || s.toolId).join(' → ')
+      : '基础比对';
+
     const newReport: AnalysisReport = {
       id: `report_${String(get().reports.length + 1).padStart(3, '0')}`,
       analysisId,
-      title: `${analysis?.name || '分析'} - 分析报告`,
+      title: `${analysis.name} - 完整分析报告 v${analysis.version}`,
       generatedAt: new Date().toISOString(),
-      generatedBy: '当前用户',
+      generatedBy: analysis.createdBy || '当前用户',
       sections: [
-        { id: 'sec1', title: '分析概述', type: 'text', content: analysis?.description || '' },
-        { id: 'sec2', title: '样本信息', type: 'table', content: analysis?.sampleIds.map(id => ({ sampleId: id, status: '已分析' })) || [] },
-        { id: 'sec3', title: '分析参数', type: 'code', content: JSON.stringify(analysis?.parametersSnapshot || {}, null, 2) },
-        { id: 'sec4', title: '结果统计', type: 'chart', content: analysis?.resultSummary || { totalVariants: 0 } },
+        {
+          id: 'sec1',
+          title: '分析概述',
+          type: 'text',
+          content: `分析项目：${analysis.name}\n\n项目描述：${analysis.description}\n\n分析版本：v${analysis.version}\n\n本次分析采用 ${toolNames} 工具链，对 ${analysis.sampleIds.length} 个样本进行了全流程分析。\n共执行 ${analysis.steps.length} 个分析步骤，整体比对率达到 ${variantSummary.alignmentRate.toFixed(2)}%，平均测序质量 Q${variantSummary.meanQuality.toFixed(0)}。\n共检出 ${variantSummary.totalVariants.toLocaleString()} 个变异位点，建议进行后续验证实验。`
+        },
+        {
+          id: 'sec2',
+          title: '样本信息表',
+          type: 'table',
+          content: sampleTableData
+        },
+        {
+          id: 'sec3',
+          title: '变异类型分布统计',
+          type: 'chart',
+          content: variantTypeData
+        },
+        {
+          id: 'sec4',
+          title: '完整参数配置',
+          type: 'code',
+          content: JSON.stringify({
+            全局参数: analysis.parametersSnapshot,
+            步骤参数: analysis.steps.reduce((acc: Record<string, unknown>, step) => {
+              acc[step.stepName] = step.parameters;
+              return acc;
+            }, {})
+          }, null, 2)
+        },
       ],
       reproducibilityInfo: {
-        softwareVersions: ALIGNMENT_TOOLS.reduce((acc, t) => ({ ...acc, [t.id]: t.version }), {}),
-        parameters: analysis?.parametersSnapshot || {},
-        commandLines: [],
-        inputFileHashes: {},
+        softwareVersions: ALIGNMENT_TOOLS.reduce((acc: Record<string, string>, t) => ({ ...acc, [t.id]: t.version }), {}),
+        parameters: analysis.parametersSnapshot,
+        commandLines: commandLines,
+        inputFileHashes: inputFileHashes,
       },
     };
+
     set(state => ({
       reports: [...state.reports, newReport],
       loading: false,
     }));
     return newReport;
+  },
+
+  createProject: async (data) => {
+    set({ loading: true });
+    await delay(400);
+    const now = new Date().toISOString();
+    const newProject: Project = {
+      id: `proj_${String(get().projects.length + 1).padStart(3, '0')}`,
+      name: data.name || '新项目',
+      description: data.description || '',
+      organism: data.organism || 'Homo sapiens',
+      batchCount: 0,
+      sampleCount: 0,
+      analysisCount: 0,
+      createdAt: now,
+      updatedAt: now,
+      status: 'active',
+      principalInvestigator: data.principalInvestigator || '当前用户',
+    };
+    set(state => ({
+      projects: [...state.projects, newProject],
+      currentProject: newProject,
+      loading: false,
+    }));
+    return newProject;
+  },
+
+  createSample: async (data) => {
+    set({ loading: true });
+    await delay(300);
+    const generateSeq = () => {
+      const bases = ['A', 'T', 'G', 'C'];
+      let seq = '';
+      for (let i = 0; i < 5000; i++) seq += bases[Math.floor(Math.random() * 4)];
+      return seq;
+    };
+    const newSample: Sample = {
+      id: `sample_${String(get().samples.length + 1).padStart(3, '0')}`,
+      name: data.name || `SAMPLE-${Date.now()}`,
+      batchId: data.batchId || 'batch_001',
+      projectId: data.projectId || get().currentProject?.id || 'proj_001',
+      description: data.description || '',
+      sequenceType: (data.sequenceType as 'dna' | 'rna' | 'protein') || 'dna',
+      sequence: data.sequence || generateSeq(),
+      organism: data.organism || 'Homo sapiens',
+      createdAt: new Date().toISOString(),
+      metadata: data.metadata || {},
+    };
+    set(state => ({
+      samples: [...state.samples, newSample],
+      loading: false,
+    }));
+    return newSample;
   },
 
   clearSelection: () => {

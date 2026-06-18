@@ -1,16 +1,27 @@
 import { useState } from 'react';
-import { TestTube, Search, Filter, Eye, ChevronDown, ChevronUp, Plus, Download, Upload } from 'lucide-react';
+import { TestTube, Search, Filter, Eye, ChevronDown, ChevronUp, Plus, Download, Upload, X, Save, FileText } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import DnaSequenceViewer from '@/components/DnaSequenceViewer';
 import type { Sample } from '@shared/types';
 
 export default function Samples() {
-  const { samples, batches, projects, selectedSampleIds, setSelectedSampleIds } = useAnalysisStore();
+  const { samples, batches, projects, selectedSampleIds, setSelectedSampleIds, createSample, loading } = useAnalysisStore();
   const [searchText, setSearchText] = useState('');
   const [selectedProject, setSelectedProject] = useState<string>('');
   const [selectedBatch, setSelectedBatch] = useState<string>('');
   const [expandedSample, setExpandedSample] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [detailSample, setDetailSample] = useState<Sample | null>(null);
+  const [newSampleForm, setNewSampleForm] = useState({
+    name: '',
+    projectId: '',
+    batchId: '',
+    description: '',
+    organism: 'Homo sapiens',
+    sequenceType: 'dna' as 'dna' | 'rna' | 'protein',
+  });
 
   const filteredSamples = samples.filter(sample => {
     if (searchText && !sample.name.toLowerCase().includes(searchText.toLowerCase())) return false;
@@ -42,6 +53,51 @@ export default function Samples() {
   const getProjectName = (projectId: string) => projects.find(p => p.id === projectId)?.name || '-';
   const getBatchName = (batchId: string) => batches.find(b => b.id === batchId)?.name || '-';
 
+  const handleCreateSample = async () => {
+    if (!newSampleForm.name.trim()) {
+      alert('请输入样本名称');
+      return;
+    }
+    if (!newSampleForm.projectId) {
+      alert('请选择所属项目');
+      return;
+    }
+    await createSample(newSampleForm);
+    setShowCreateModal(false);
+    setNewSampleForm({ name: '', projectId: '', batchId: '', description: '', organism: 'Homo sapiens', sequenceType: 'dna' });
+    alert('样本创建成功！');
+  };
+
+  const handleExport = () => {
+    const csvContent = 'data:text/csv;charset=utf-8,'
+      + encodeURIComponent(filteredSamples.map(s => `${s.name},${s.organism},${s.sequenceType},${getProjectName(s.projectId)},${getBatchName(s.batchId)},${s.sequence.length},${s.createdAt}`).join('\n'));
+    const link = document.createElement('a');
+    link.setAttribute('href', csvContent);
+    link.setAttribute('download', `samples_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    alert(`已导出 ${filteredSamples.length} 个样本`);
+  };
+
+  const handleImport = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.csv,.tsv,.fasta,.fastq';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        alert(`已选择文件: ${file.name}\n此功能将上传并解析样本文件`);
+      }
+    };
+    input.click();
+  };
+
+  const handleViewDetail = (sample: Sample) => {
+    setDetailSample(sample);
+    setShowDetailModal(true);
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
@@ -61,11 +117,11 @@ export default function Samples() {
               </button>
             </div>
           )}
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={handleImport}>
             <Upload size={16} />
             导入样本
           </button>
-          <button className="btn-primary flex items-center gap-2">
+          <button className="btn-primary flex items-center gap-2" onClick={() => setShowCreateModal(true)}>
             <Plus size={18} />
             新建样本
           </button>
@@ -92,7 +148,7 @@ export default function Samples() {
             筛选
             {showFilters ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </button>
-          <button className="btn-secondary flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={handleExport}>
             <Download size={16} />
             导出
           </button>
@@ -160,12 +216,220 @@ export default function Samples() {
               isExpanded={expandedSample === sample.id}
               onSelect={() => toggleSampleSelection(sample.id)}
               onToggleExpand={() => setExpandedSample(expandedSample === sample.id ? null : sample.id)}
+              onViewDetail={handleViewDetail}
               projectName={getProjectName(sample.projectId)}
               batchName={getBatchName(sample.batchId)}
             />
           ))}
         </div>
       </div>
+
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-lg overflow-hidden">
+            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-white">新建样本</h2>
+              <button
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                onClick={() => setShowCreateModal(false)}
+              >
+                <X size={20} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">样本名称 *</label>
+                  <input
+                    type="text"
+                    className="input-field w-full"
+                    placeholder="例如 sample_010"
+                    value={newSampleForm.name}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, name: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">所属项目 *</label>
+                  <select
+                    className="select-field w-full"
+                    value={newSampleForm.projectId}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, projectId: e.target.value })}
+                  >
+                    <option value="">请选择项目</option>
+                    {projects.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">所属批次</label>
+                <select
+                  className="select-field w-full"
+                  value={newSampleForm.batchId}
+                  onChange={(e) => setNewSampleForm({ ...newSampleForm, batchId: e.target.value })}
+                >
+                  <option value="">请选择批次（可选）</option>
+                  {batches
+                    .filter(b => !newSampleForm.projectId || b.projectId === newSampleForm.projectId)
+                    .map(b => (
+                      <option key={b.id} value={b.id}>{b.name}</option>
+                    ))}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">物种</label>
+                  <input
+                    type="text"
+                    className="input-field w-full"
+                    placeholder="例如 Homo sapiens"
+                    value={newSampleForm.organism}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, organism: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-slate-400 mb-2">序列类型</label>
+                  <select
+                    className="select-field w-full"
+                    value={newSampleForm.sequenceType}
+                    onChange={(e) => setNewSampleForm({ ...newSampleForm, sequenceType: e.target.value as 'dna' | 'rna' | 'protein' })}
+                  >
+                    <option value="dna">DNA</option>
+                    <option value="rna">RNA</option>
+                    <option value="protein">Protein</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm text-slate-400 mb-2">样本描述</label>
+                <textarea
+                  className="input-field w-full min-h-[80px] resize-none"
+                  placeholder="描述样本来源、处理方式等..."
+                  value={newSampleForm.description}
+                  onChange={(e) => setNewSampleForm({ ...newSampleForm, description: e.target.value })}
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-700 flex justify-end gap-3">
+              <button
+                className="btn-secondary"
+                onClick={() => setShowCreateModal(false)}
+              >
+                取消
+              </button>
+              <button
+                className="btn-primary flex items-center gap-2"
+                onClick={handleCreateSample}
+                disabled={loading}
+              >
+                <Save size={16} />
+                创建样本
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showDetailModal && detailSample && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-2xl max-h-[85vh] overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-blue-500/20 to-blue-600/20 flex items-center justify-center">
+                  <TestTube className="text-blue-400" size={20} />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold text-white font-mono">{detailSample.name}</h2>
+                  <p className="text-sm text-slate-400">{detailSample.organism} · {detailSample.sequenceType.toUpperCase()}</p>
+                </div>
+              </div>
+              <button
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                onClick={() => setShowDetailModal(false)}
+              >
+                <X size={20} className="text-slate-400" />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto space-y-5 flex-1">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="p-4 rounded-xl bg-slate-700/30">
+                  <p className="text-xs text-slate-500 mb-1">样本ID</p>
+                  <p className="text-white font-mono text-sm">{detailSample.id}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-700/30">
+                  <p className="text-xs text-slate-500 mb-1">创建时间</p>
+                  <p className="text-white text-sm">{new Date(detailSample.createdAt).toLocaleString('zh-CN')}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-700/30">
+                  <p className="text-xs text-slate-500 mb-1">所属项目</p>
+                  <p className="text-white text-sm">{getProjectName(detailSample.projectId)}</p>
+                </div>
+                <div className="p-4 rounded-xl bg-slate-700/30">
+                  <p className="text-xs text-slate-500 mb-1">所属批次</p>
+                  <p className="text-white text-sm">{getBatchName(detailSample.batchId)}</p>
+                </div>
+              </div>
+
+              {detailSample.description && (
+                <div className="p-4 rounded-xl bg-slate-700/30">
+                  <p className="text-xs text-slate-500 mb-2">样本描述</p>
+                  <p className="text-slate-300 text-sm">{detailSample.description}</p>
+                </div>
+              )}
+
+              <div className="p-4 rounded-xl bg-slate-700/30">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-slate-500">元数据</p>
+                </div>
+                <div className="space-y-2">
+                  {Object.entries(detailSample.metadata).map(([key, value]) => (
+                    <div key={key} className="flex justify-between text-sm">
+                      <span className="text-slate-400">{key}</span>
+                      <span className="text-white">{String(value)}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="p-4 rounded-xl bg-slate-700/30">
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs text-slate-500">序列信息</p>
+                  <span className="text-xs text-slate-400">{detailSample.sequence.length} bp</span>
+                </div>
+                <div className="bg-slate-800 rounded-lg p-3 max-h-40 overflow-y-auto">
+                  <pre className="text-xs text-slate-400 font-mono break-all whitespace-pre-wrap">
+                    {detailSample.sequence.slice(0, 1000)}...
+                  </pre>
+                </div>
+              </div>
+            </div>
+            <div className="p-5 border-t border-slate-700 flex justify-end gap-3">
+              <button
+                className="btn-secondary flex items-center gap-2"
+                onClick={() => setShowDetailModal(false)}
+              >
+                关闭
+              </button>
+              <button
+                className="btn-primary flex items-center gap-2"
+                onClick={() => {
+                  const csvContent = `data:text/csv;charset=utf-8,${encodeURIComponent(JSON.stringify(detailSample, null, 2))}`;
+                  const link = document.createElement('a');
+                  link.setAttribute('href', csvContent);
+                  link.setAttribute('download', `${detailSample.name}_details.json`);
+                  document.body.appendChild(link);
+                  link.click();
+                  document.body.removeChild(link);
+                }}
+              >
+                <FileText size={16} />
+                导出详情
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -176,11 +440,12 @@ interface SampleRowProps {
   isExpanded: boolean;
   onSelect: () => void;
   onToggleExpand: () => void;
+  onViewDetail: (sample: Sample) => void;
   projectName: string;
   batchName: string;
 }
 
-function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, projectName, batchName }: SampleRowProps) {
+function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, onViewDetail, projectName, batchName }: SampleRowProps) {
   return (
     <div className={`transition-colors ${isSelected ? 'bg-primary-500/5' : ''}`}>
       <div className="p-4 flex items-center gap-4 hover:bg-slate-800/30">
@@ -220,7 +485,11 @@ function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, p
           >
             {isExpanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
           </button>
-          <button className="p-2 text-slate-400 hover:text-primary-400 transition-colors">
+          <button
+            className="p-2 text-slate-400 hover:text-primary-400 transition-colors"
+            title="查看样本详情"
+            onClick={() => onViewDetail(sample)}
+          >
             <Eye size={18} />
           </button>
         </div>
@@ -252,7 +521,12 @@ function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, p
                 </div>
               </div>
               <div className="pt-4 border-t border-slate-700">
-                <button className="w-full btn-secondary text-sm">查看详细信息</button>
+                <button
+                  className="w-full btn-secondary text-sm"
+                  onClick={() => onViewDetail(sample)}
+                >
+                  查看详细信息
+                </button>
               </div>
             </div>
           </div>
