@@ -870,7 +870,7 @@ export const computeCodonPreference = (
     }
   }
 
-  const positionFrequencies: CodonPositionBaseFrequency[] = [1, 2, 3].map((pos, idx) => {
+  const positionFrequencies: CodonPositionBaseFrequency[] = ([1, 2, 3] as const).map((pos, idx) => {
     const counts = positionCounts[idx];
     const total = counts.A + counts.T + counts.G + counts.C;
     return {
