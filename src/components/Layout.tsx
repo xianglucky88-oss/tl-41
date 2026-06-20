@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FlaskConical, TestTube, Workflow, History, GitCompare, FileText, Search, Bell, User } from 'lucide-react';
+  LayoutDashboard, FlaskConical, TestTube, Workflow, BarChart3, History, GitCompare, FileText, Search, Bell, User } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface LayoutProps {
@@ -12,6 +12,7 @@ const navItems = [
   { path: '/projects', label: '项目管理', icon: FlaskConical },
   { path: '/samples', label: '样本管理', icon: TestTube },
   { path: '/workbench', label: '分析工作台', icon: Workflow },
+  { path: '/visualizer', label: '比对可视化', icon: BarChart3 },
   { path: '/history', label: '分析历史', icon: History },
   { path: '/variants', label: '变异比对', icon: GitCompare },
   { path: '/reports', label: '报告中心', icon: FileText },

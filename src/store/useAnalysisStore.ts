@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory } from '@shared/types';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult } from '@shared/mockData';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData } from '@shared/types';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
 interface AnalysisState {
@@ -15,6 +15,8 @@ interface AnalysisState {
   currentBatch: Batch | null;
   currentAnalysis: AnalysisRecord | null;
   alignmentResults: AlignmentResult[];
+  blastDotPlotData: BlastDotPlotData | null;
+  clustalAlignmentData: ClustalAlignmentData | null;
   selectedSampleIds: string[];
   selectedVariantIds: string[];
   filters: {
@@ -58,6 +60,8 @@ interface AnalysisActions {
   createBatch: (data: Partial<Batch>) => Promise<Batch>;
   updateBatch: (id: string, data: Partial<Batch>) => Promise<void>;
   deleteBatch: (id: string) => Promise<void>;
+  generateBlastDotPlot: (queryId: string, subjectId: string) => Promise<void>;
+  generateClustalAlignment: (sequenceCount: number, alignmentLength: number, sequenceType: 'dna' | 'protein') => Promise<void>;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -105,6 +109,8 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   currentBatch: null,
   currentAnalysis: null,
   alignmentResults: [],
+  blastDotPlotData: null,
+  clustalAlignmentData: null,
   selectedSampleIds: [],
   selectedVariantIds: [],
   filters: {},
@@ -653,5 +659,27 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       selectedVariantIds: [],
       alignmentResults: [],
     });
+  },
+
+  generateBlastDotPlot: async (queryId, subjectId) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(400);
+      const data = generateBlastDotPlotData(queryId, subjectId);
+      set({ blastDotPlotData: data, loading: false });
+    } catch {
+      set({ error: 'BLAST 点阵图生成失败', loading: false });
+    }
+  },
+
+  generateClustalAlignment: async (sequenceCount, alignmentLength, sequenceType) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(500);
+      const data = generateClustalAlignmentData(sequenceCount, alignmentLength, sequenceType);
+      set({ clustalAlignmentData: data, loading: false });
+    } catch {
+      set({ error: 'ClustalW 比对数据生成失败', loading: false });
+    }
   },
 }));

@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
 
@@ -655,3 +655,127 @@ export const MOCK_REPORTS: AnalysisReport[] = [
     },
   },
 ];
+
+export const generateBlastDotPlotData = (queryId: string, subjectId: string): BlastDotPlotData => {
+  const queryLength = 1500 + Math.floor(Math.random() * 3500);
+  const subjectLength = 2000 + Math.floor(Math.random() * 8000);
+  const hspCount = 8 + Math.floor(Math.random() * 15);
+  const hsps: BlastHSP[] = [];
+
+  for (let i = 0; i < hspCount; i++) {
+    const alignmentLength = 50 + Math.floor(Math.random() * 450);
+    const queryStart = Math.floor(Math.random() * (queryLength - alignmentLength));
+    const subjectStart = Math.floor(Math.random() * (subjectLength - alignmentLength));
+    const percentIdentity = 70 + Math.random() * 30;
+    const strand: 'plus' | 'minus' = Math.random() > 0.3 ? 'plus' : 'minus';
+
+    hsps.push({
+      queryStart: queryStart + 1,
+      queryEnd: queryStart + alignmentLength,
+      subjectStart: subjectStart + 1,
+      subjectEnd: strand === 'plus' ? subjectStart + alignmentLength : subjectStart + alignmentLength,
+      percentIdentity: Math.round(percentIdentity * 100) / 100,
+      alignmentLength,
+      bitScore: 40 + Math.random() * 460,
+      eValue: Math.pow(10, -(5 + Math.random() * 55)),
+      strand,
+    });
+  }
+
+  return {
+    queryId,
+    queryLength,
+    subjectId,
+    subjectLength,
+    hsps,
+  };
+};
+
+const aminoAcids = ['A', 'R', 'N', 'D', 'C', 'Q', 'E', 'G', 'H', 'I', 'L', 'K', 'M', 'F', 'P', 'S', 'T', 'W', 'Y', 'V'];
+const dnaBases = ['A', 'T', 'G', 'C'];
+
+export const generateClustalAlignmentData = (
+  sequenceCount: number = 6,
+  alignmentLength: number = 300,
+  sequenceType: 'dna' | 'protein' = 'dna'
+): ClustalAlignmentData => {
+  const alphabet = sequenceType === 'dna' ? dnaBases : aminoAcids;
+  const charSet = [...alphabet, '-'];
+
+  const generateConsensus = (): string => {
+    let seq = '';
+    for (let i = 0; i < alignmentLength; i++) {
+      seq += alphabet[Math.floor(Math.random() * alphabet.length)];
+    }
+    return seq;
+  };
+
+  const consensus = generateConsensus();
+
+  const sequences: ClustalAlignedSequence[] = [];
+  const sequenceNames = ['Human', 'Mouse', 'Rat', 'Chicken', 'Zebrafish', 'FruitFly', 'Worm', 'Yeast'];
+
+  for (let i = 0; i < sequenceCount; i++) {
+    let seq = '';
+    const conservationRate = 0.6 + (sequenceCount - i) * 0.05;
+
+    for (let j = 0; j < alignmentLength; j++) {
+      if (Math.random() < conservationRate) {
+        seq += consensus[j];
+      } else if (Math.random() < 0.12) {
+        seq += '-';
+      } else {
+        seq += alphabet[Math.floor(Math.random() * alphabet.length)];
+      }
+    }
+
+    sequences.push({
+      id: `seq_${i + 1}`,
+      name: sequenceNames[i] || `Sequence_${i + 1}`,
+      sequence: seq,
+    });
+  }
+
+  const columns: ClustalColumnInfo[] = [];
+  const conservationScores: number[] = [];
+
+  for (let pos = 0; pos < alignmentLength; pos++) {
+    const aminoAcids: Record<string, number> = {};
+    let gapCount = 0;
+    let maxCount = 0;
+    let consensusChar = '';
+
+    sequences.forEach(seq => {
+      const char = seq.sequence[pos];
+      if (char === '-') {
+        gapCount++;
+      } else {
+        aminoAcids[char] = (aminoAcids[char] || 0) + 1;
+        if (aminoAcids[char] > maxCount) {
+          maxCount = aminoAcids[char];
+          consensusChar = char;
+        }
+      }
+    });
+
+    const nonGapCount = sequenceCount - gapCount;
+    const conservation = nonGapCount > 0 ? maxCount / sequenceCount : 0;
+    conservationScores.push(conservation);
+
+    columns.push({
+      position: pos + 1,
+      conservation,
+      consensus: consensusChar || '-',
+      aminoAcids,
+      isGapColumn: gapCount === sequenceCount,
+    });
+  }
+
+  return {
+    sequences,
+    alignmentLength,
+    columns,
+    consensusSequence: consensus,
+    conservationScores,
+  };
+};

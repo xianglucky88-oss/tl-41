@@ -216,3 +216,45 @@ export interface PaginatedResponse<T> {
   pageSize: number;
   totalPages: number;
 }
+
+export interface BlastHSP {
+  queryStart: number;
+  queryEnd: number;
+  subjectStart: number;
+  subjectEnd: number;
+  percentIdentity: number;
+  alignmentLength: number;
+  bitScore: number;
+  eValue: number;
+  strand: 'plus' | 'minus';
+}
+
+export interface BlastDotPlotData {
+  queryId: string;
+  queryLength: number;
+  subjectId: string;
+  subjectLength: number;
+  hsps: BlastHSP[];
+}
+
+export interface ClustalAlignedSequence {
+  id: string;
+  name: string;
+  sequence: string;
+}
+
+export interface ClustalColumnInfo {
+  position: number;
+  conservation: number;
+  consensus: string;
+  aminoAcids: Record<string, number>;
+  isGapColumn: boolean;
+}
+
+export interface ClustalAlignmentData {
+  sequences: ClustalAlignedSequence[];
+  alignmentLength: number;
+  columns: ClustalColumnInfo[];
+  consensusSequence: string;
+  conservationScores: number[];
+}
