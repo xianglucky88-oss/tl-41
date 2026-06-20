@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult } from '@shared/types';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference } from '@shared/mockData';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult } from '@shared/types';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
 interface AnalysisState {
@@ -19,6 +19,7 @@ interface AnalysisState {
   clustalAlignmentData: ClustalAlignmentData | null;
   gcSlidingWindowResult: GcSlidingWindowResult | null;
   codonPreferenceResult: CodonPreferenceResult | null;
+  orfPredictionResult: OrfPredictionResult | null;
   selectedSampleIds: string[];
   selectedVariantIds: string[];
   filters: {
@@ -66,6 +67,7 @@ interface AnalysisActions {
   generateClustalAlignment: (sequenceCount: number, alignmentLength: number, sequenceType: 'dna' | 'protein') => Promise<void>;
   analyzeGcContent: (sampleId: string, windowSize: number, stepSize: number) => Promise<void>;
   analyzeCodonPreference: (sampleId: string) => Promise<void>;
+  predictOrf: (sampleId: string, minOrfLength: number) => Promise<void>;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -117,6 +119,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   clustalAlignmentData: null,
   gcSlidingWindowResult: null,
   codonPreferenceResult: null,
+  orfPredictionResult: null,
   selectedSampleIds: [],
   selectedVariantIds: [],
   filters: {},
@@ -718,6 +721,22 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       set({ codonPreferenceResult: result, loading: false });
     } catch {
       set({ error: '密码子偏好分析失败', loading: false });
+    }
+  },
+
+  predictOrf: async (sampleId, minOrfLength) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(500);
+      const sample = get().samples.find(s => s.id === sampleId);
+      if (!sample) {
+        set({ error: '样本不存在', loading: false });
+        return;
+      }
+      const result = predictOrfs(sample.sequence, sampleId, minOrfLength);
+      set({ orfPredictionResult: result, loading: false });
+    } catch {
+      set({ error: 'ORF预测失败', loading: false });
     }
   },
 }));

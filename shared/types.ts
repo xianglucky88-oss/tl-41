@@ -290,6 +290,38 @@ export interface RscuEntry {
   rscu: number;
 }
 
+export interface OrfRecord {
+  id: string;
+  frame: number;
+  strand: '+' | '-';
+  startCodon: string;
+  stopCodon: string;
+  startPosition: number;
+  endPosition: number;
+  orfLength: number;
+  nucleotideSequence: string;
+  proteinSequence: string;
+  proteinLength: number;
+  gcPercent: number;
+  gc1Percent: number;
+  gc2Percent: number;
+  gc3Percent: number;
+}
+
+export interface OrfPredictionResult {
+  sequenceId: string;
+  sequenceLength: number;
+  minOrfLength: number;
+  totalOrfs: number;
+  orfs: OrfRecord[];
+  frameSummary: {
+    frame: number;
+    strand: '+' | '-';
+    orfCount: number;
+    longestOrf: number;
+  }[];
+}
+
 export interface CodonPreferenceResult {
   sequenceId: string;
   sequenceLength: number;

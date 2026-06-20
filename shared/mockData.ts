@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
 
@@ -904,5 +904,189 @@ export const computeCodonPreference = (
     codonCount,
     positionFrequencies,
     rscuTable,
+  };
+};
+
+const COMPLEMENT: Record<string, string> = { A: 'T', T: 'A', G: 'C', C: 'G' };
+
+const reverseComplement = (seq: string): string => {
+  return seq.split('').reverse().map(b => COMPLEMENT[b] || b).join('');
+};
+
+const CODON_TO_AA: Record<string, string> = {
+  TTT: 'F', TTC: 'F', TTA: 'L', TTG: 'L',
+  CTT: 'L', CTC: 'L', CTA: 'L', CTG: 'L',
+  ATT: 'I', ATC: 'I', ATA: 'I', ATG: 'M',
+  GTT: 'V', GTC: 'V', GTA: 'V', GTG: 'V',
+  TCT: 'S', TCC: 'S', TCA: 'S', TCG: 'S',
+  CCT: 'P', CCC: 'P', CCA: 'P', CCG: 'P',
+  ACT: 'T', ACC: 'T', ACA: 'T', ACG: 'T',
+  GCT: 'A', GCC: 'A', GCA: 'A', GCG: 'A',
+  TAT: 'Y', TAC: 'Y', TAA: '*', TAG: '*',
+  CAT: 'H', CAC: 'H', CAA: 'Q', CAG: 'Q',
+  AAT: 'N', AAC: 'N', AAA: 'K', AAG: 'K',
+  GAT: 'D', GAC: 'D', GAA: 'E', GAG: 'E',
+  TGT: 'C', TGC: 'C', TGA: '*', TGG: 'W',
+  CGT: 'R', CGC: 'R', CGA: 'R', CGG: 'R',
+  AGT: 'S', AGC: 'S', AGA: 'R', AGG: 'R',
+  GGT: 'G', GGC: 'G', GGA: 'G', GGG: 'G',
+};
+
+const START_CODONS = new Set(['ATG']);
+const STOP_CODONS = new Set(['TAA', 'TAG', 'TGA']);
+
+const translateSequence = (dna: string): string => {
+  let protein = '';
+  for (let i = 0; i + 2 < dna.length; i += 3) {
+    const codon = dna.slice(i, i + 3);
+    protein += CODON_TO_AA[codon] || 'X';
+  }
+  return protein;
+};
+
+const computeGcForSequence = (seq: string): number => {
+  if (seq.length === 0) return 0;
+  let gc = 0;
+  for (let i = 0; i < seq.length; i++) {
+    if (seq[i] === 'G' || seq[i] === 'C') gc++;
+  }
+  return (gc / seq.length) * 100;
+};
+
+const computeGcByPosition = (seq: string): { gc1: number; gc2: number; gc3: number } => {
+  const counts = [0, 0, 0];
+  const totals = [0, 0, 0];
+  for (let i = 0; i < seq.length; i++) {
+    const pos = i % 3;
+    totals[pos]++;
+    if (seq[i] === 'G' || seq[i] === 'C') counts[pos]++;
+  }
+  return {
+    gc1: totals[0] > 0 ? (counts[0] / totals[0]) * 100 : 0,
+    gc2: totals[1] > 0 ? (counts[1] / totals[1]) * 100 : 0,
+    gc3: totals[2] > 0 ? (counts[2] / totals[2]) * 100 : 0,
+  };
+};
+
+const scanFrameOrfs = (
+  sequence: string,
+  frameOffset: number,
+  strand: '+' | '-',
+  minOrfLength: number,
+  sequenceLength: number
+): OrfRecord[] => {
+  const orfs: OrfRecord[] = [];
+  let orfCounter = 0;
+  let i = frameOffset;
+
+  while (i + 2 < sequence.length) {
+    const codon = sequence.slice(i, i + 3);
+    if (!START_CODONS.has(codon)) {
+      i += 3;
+      continue;
+    }
+
+    const startPos = i;
+    let endPos = -1;
+
+    for (let j = i + 3; j + 2 < sequence.length; j += 3) {
+      const c = sequence.slice(j, j + 3);
+      if (STOP_CODONS.has(c)) {
+        endPos = j + 2;
+        break;
+      }
+    }
+
+    if (endPos === -1) {
+      i += 3;
+      continue;
+    }
+
+    const orfNt = sequence.slice(startPos, endPos + 1);
+    const orfLen = orfNt.length;
+
+    if (orfLen >= minOrfLength) {
+      orfCounter++;
+      const protein = translateSequence(orfNt);
+      const gc = computeGcForSequence(orfNt);
+      const gcByPos = computeGcByPosition(orfNt);
+
+      const actualStart = strand === '+'
+        ? startPos + 1
+        : sequenceLength - endPos;
+      const actualEnd = strand === '+'
+        ? endPos + 1
+        : sequenceLength - startPos;
+
+      orfs.push({
+        id: `orf_${strand}${frameOffset}_${orfCounter}`,
+        frame: frameOffset + 1,
+        strand,
+        startCodon: orfNt.slice(0, 3),
+        stopCodon: orfNt.slice(orfLen - 3),
+        startPosition: actualStart,
+        endPosition: actualEnd,
+        orfLength: orfLen,
+        nucleotideSequence: orfLen > 300 ? orfNt.slice(0, 147) + '...' + orfNt.slice(orfLen - 150) : orfNt,
+        proteinSequence: protein.slice(0, -1),
+        proteinLength: protein.length - 1,
+        gcPercent: Math.round(gc * 100) / 100,
+        gc1Percent: Math.round(gcByPos.gc1 * 100) / 100,
+        gc2Percent: Math.round(gcByPos.gc2 * 100) / 100,
+        gc3Percent: Math.round(gcByPos.gc3 * 100) / 100,
+      });
+    }
+
+    i = endPos + 1;
+  }
+
+  return orfs;
+};
+
+export const predictOrfs = (
+  sequence: string,
+  sequenceId: string,
+  minOrfLength: number = 150
+): OrfPredictionResult => {
+  const seq = sequence.toUpperCase().replace(/[^ATGC]/g, '');
+  const rcSeq = reverseComplement(seq);
+  const allOrfs: OrfRecord[] = [];
+
+  for (let frame = 0; frame < 3; frame++) {
+    allOrfs.push(...scanFrameOrfs(seq, frame, '+', minOrfLength, seq.length));
+  }
+  for (let frame = 0; frame < 3; frame++) {
+    allOrfs.push(...scanFrameOrfs(rcSeq, frame, '-', minOrfLength, seq.length));
+  }
+
+  allOrfs.sort((a, b) => b.orfLength - a.orfLength);
+
+  const frameSummary = [];
+  for (let frame = 0; frame < 3; frame++) {
+    const fwd = allOrfs.filter(o => o.strand === '+' && o.frame === frame + 1);
+    frameSummary.push({
+      frame: frame + 1,
+      strand: '+' as const,
+      orfCount: fwd.length,
+      longestOrf: fwd.length > 0 ? fwd.reduce((max, o) => Math.max(max, o.orfLength), 0) : 0,
+    });
+  }
+  for (let frame = 0; frame < 3; frame++) {
+    const rev = allOrfs.filter(o => o.strand === '-' && o.frame === frame + 1);
+    frameSummary.push({
+      frame: frame + 1,
+      strand: '-' as const,
+      orfCount: rev.length,
+      longestOrf: rev.length > 0 ? rev.reduce((max, o) => Math.max(max, o.orfLength), 0) : 0,
+    });
+  }
+
+  return {
+    sequenceId,
+    sequenceLength: seq.length,
+    minOrfLength,
+    totalOrfs: allOrfs.length,
+    orfs: allOrfs,
+    frameSummary,
   };
 };

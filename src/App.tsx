@@ -9,6 +9,7 @@ import VariantComparison from './pages/VariantComparison';
 import Reports from './pages/Reports';
 import AlignmentVisualizer from './pages/AlignmentVisualizer';
 import GcCodonAnalyzer from './pages/GcCodonAnalyzer';
+import OrfPredictor from './pages/OrfPredictor';
 
 export default function App() {
   return (
@@ -20,6 +21,7 @@ export default function App() {
         <Route path="/workbench" element={<AnalysisWorkbench />} />
         <Route path="/visualizer" element={<AlignmentVisualizer />} />
         <Route path="/gc-codon" element={<GcCodonAnalyzer />} />
+        <Route path="/orf-predictor" element={<OrfPredictor />} />
         <Route path="/history" element={<AnalysisHistory />} />
         <Route path="/variants" element={<VariantComparison />} />
         <Route path="/reports" element={<Reports />} />
