@@ -258,3 +258,42 @@ export interface ClustalAlignmentData {
   consensusSequence: string;
   conservationScores: number[];
 }
+
+export interface GcWindowPoint {
+  position: number;
+  gcPercent: number;
+}
+
+export interface GcSlidingWindowResult {
+  sequenceId: string;
+  sequenceLength: number;
+  windowSize: number;
+  stepSize: number;
+  overallGcPercent: number;
+  dataPoints: GcWindowPoint[];
+}
+
+export interface CodonPositionBaseFrequency {
+  position: 1 | 2 | 3;
+  A: number;
+  T: number;
+  G: number;
+  C: number;
+  gcPercent: number;
+}
+
+export interface RscuEntry {
+  codon: string;
+  aminoAcid: string;
+  count: number;
+  expected: number;
+  rscu: number;
+}
+
+export interface CodonPreferenceResult {
+  sequenceId: string;
+  sequenceLength: number;
+  codonCount: number;
+  positionFrequencies: CodonPositionBaseFrequency[];
+  rscuTable: RscuEntry[];
+}

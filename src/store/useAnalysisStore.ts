@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData } from '@shared/types';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData } from '@shared/mockData';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult } from '@shared/types';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
 interface AnalysisState {
@@ -17,6 +17,8 @@ interface AnalysisState {
   alignmentResults: AlignmentResult[];
   blastDotPlotData: BlastDotPlotData | null;
   clustalAlignmentData: ClustalAlignmentData | null;
+  gcSlidingWindowResult: GcSlidingWindowResult | null;
+  codonPreferenceResult: CodonPreferenceResult | null;
   selectedSampleIds: string[];
   selectedVariantIds: string[];
   filters: {
@@ -62,6 +64,8 @@ interface AnalysisActions {
   deleteBatch: (id: string) => Promise<void>;
   generateBlastDotPlot: (queryId: string, subjectId: string) => Promise<void>;
   generateClustalAlignment: (sequenceCount: number, alignmentLength: number, sequenceType: 'dna' | 'protein') => Promise<void>;
+  analyzeGcContent: (sampleId: string, windowSize: number, stepSize: number) => Promise<void>;
+  analyzeCodonPreference: (sampleId: string) => Promise<void>;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -111,6 +115,8 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   alignmentResults: [],
   blastDotPlotData: null,
   clustalAlignmentData: null,
+  gcSlidingWindowResult: null,
+  codonPreferenceResult: null,
   selectedSampleIds: [],
   selectedVariantIds: [],
   filters: {},
@@ -680,6 +686,38 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       set({ clustalAlignmentData: data, loading: false });
     } catch {
       set({ error: 'ClustalW 比对数据生成失败', loading: false });
+    }
+  },
+
+  analyzeGcContent: async (sampleId, windowSize, stepSize) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(300);
+      const sample = get().samples.find(s => s.id === sampleId);
+      if (!sample) {
+        set({ error: '样本不存在', loading: false });
+        return;
+      }
+      const result = computeGcSlidingWindow(sample.sequence, sampleId, windowSize, stepSize);
+      set({ gcSlidingWindowResult: result, loading: false });
+    } catch {
+      set({ error: 'GC含量分析失败', loading: false });
+    }
+  },
+
+  analyzeCodonPreference: async (sampleId) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(400);
+      const sample = get().samples.find(s => s.id === sampleId);
+      if (!sample) {
+        set({ error: '样本不存在', loading: false });
+        return;
+      }
+      const result = computeCodonPreference(sample.sequence, sampleId);
+      set({ codonPreferenceResult: result, loading: false });
+    } catch {
+      set({ error: '密码子偏好分析失败', loading: false });
     }
   },
 }));

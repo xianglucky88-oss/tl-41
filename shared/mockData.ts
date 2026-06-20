@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
 
@@ -777,5 +777,132 @@ export const generateClustalAlignmentData = (
     columns,
     consensusSequence: consensus,
     conservationScores,
+  };
+};
+
+export const computeGcSlidingWindow = (
+  sequence: string,
+  sequenceId: string,
+  windowSize: number = 100,
+  stepSize: number = 10
+): GcSlidingWindowResult => {
+  const seq = sequence.toUpperCase().replace(/[^ATGC]/g, '');
+  let totalGc = 0;
+  for (let i = 0; i < seq.length; i++) {
+    if (seq[i] === 'G' || seq[i] === 'C') totalGc++;
+  }
+  const overallGcPercent = seq.length > 0 ? (totalGc / seq.length) * 100 : 0;
+
+  const dataPoints: GcSlidingWindowResult['dataPoints'] = [];
+  for (let i = 0; i <= seq.length - windowSize; i += stepSize) {
+    const window = seq.slice(i, i + windowSize);
+    let gc = 0;
+    for (let j = 0; j < window.length; j++) {
+      if (window[j] === 'G' || window[j] === 'C') gc++;
+    }
+    dataPoints.push({
+      position: i + 1,
+      gcPercent: (gc / window.length) * 100,
+    });
+  }
+
+  return {
+    sequenceId,
+    sequenceLength: seq.length,
+    windowSize,
+    stepSize,
+    overallGcPercent,
+    dataPoints,
+  };
+};
+
+const CODON_TABLE: Record<string, string> = {
+  TTT: 'Phe', TTC: 'Phe', TTA: 'Leu', TTG: 'Leu',
+  CTT: 'Leu', CTC: 'Leu', CTA: 'Leu', CTG: 'Leu',
+  ATT: 'Ile', ATC: 'Ile', ATA: 'Ile', ATG: 'Met',
+  GTT: 'Val', GTC: 'Val', GTA: 'Val', GTG: 'Val',
+  TCT: 'Ser', TCC: 'Ser', TCA: 'Ser', TCG: 'Ser',
+  CCT: 'Pro', CCC: 'Pro', CCA: 'Pro', CCG: 'Pro',
+  ACT: 'Thr', ACC: 'Thr', ACA: 'Thr', ACG: 'Thr',
+  GCT: 'Ala', GCC: 'Ala', GCA: 'Ala', GCG: 'Ala',
+  TAT: 'Tyr', TAC: 'Tyr', TAA: 'Stop', TAG: 'Stop',
+  CAT: 'His', CAC: 'His', CAA: 'Gln', CAG: 'Gln',
+  AAT: 'Asn', AAC: 'Asn', AAA: 'Lys', AAG: 'Lys',
+  GAT: 'Asp', GAC: 'Asp', GAA: 'Glu', GAG: 'Glu',
+  TGT: 'Cys', TGC: 'Cys', TGA: 'Stop', TGG: 'Trp',
+  CGT: 'Arg', CGC: 'Arg', CGA: 'Arg', CGG: 'Arg',
+  AGT: 'Ser', AGC: 'Ser', AGA: 'Arg', AGG: 'Arg',
+  GGT: 'Gly', GGC: 'Gly', GGA: 'Gly', GGG: 'Gly',
+};
+
+const SYNONYMOUS_CODONS: Record<string, string[]> = {};
+for (const [codon, aa] of Object.entries(CODON_TABLE)) {
+  if (aa === 'Stop') continue;
+  if (!SYNONYMOUS_CODONS[aa]) SYNONYMOUS_CODONS[aa] = [];
+  SYNONYMOUS_CODONS[aa].push(codon);
+}
+
+export const computeCodonPreference = (
+  sequence: string,
+  sequenceId: string
+): CodonPreferenceResult => {
+  const seq = sequence.toUpperCase().replace(/[^ATGC]/g, '');
+
+  const codonCounts: Record<string, number> = {};
+  const positionCounts: [Record<string, number>, Record<string, number>, Record<string, number>] = [
+    { A: 0, T: 0, G: 0, C: 0 },
+    { A: 0, T: 0, G: 0, C: 0 },
+    { A: 0, T: 0, G: 0, C: 0 },
+  ];
+
+  let codonCount = 0;
+  for (let i = 0; i + 2 < seq.length; i += 3) {
+    const codon = seq.slice(i, i + 3);
+    if (codon.length < 3) break;
+    codonCounts[codon] = (codonCounts[codon] || 0) + 1;
+    codonCount++;
+
+    for (let p = 0; p < 3; p++) {
+      const base = codon[p];
+      if (base in positionCounts[p]) {
+        positionCounts[p][base]++;
+      }
+    }
+  }
+
+  const positionFrequencies: CodonPositionBaseFrequency[] = [1, 2, 3].map((pos, idx) => {
+    const counts = positionCounts[idx];
+    const total = counts.A + counts.T + counts.G + counts.C;
+    return {
+      position: pos,
+      A: total > 0 ? counts.A / total : 0,
+      T: total > 0 ? counts.T / total : 0,
+      G: total > 0 ? counts.G / total : 0,
+      C: total > 0 ? counts.C / total : 0,
+      gcPercent: total > 0 ? ((counts.G + counts.C) / total) * 100 : 0,
+    };
+  });
+
+  const rscuTable: RscuEntry[] = [];
+  for (const [aa, codons] of Object.entries(SYNONYMOUS_CODONS)) {
+    const n = codons.length;
+    const totalForAa = codons.reduce((sum, c) => sum + (codonCounts[c] || 0), 0);
+    const expected = totalForAa / n;
+
+    for (const codon of codons) {
+      const count = codonCounts[codon] || 0;
+      const rscu = expected > 0 ? count / expected : 0;
+      rscuTable.push({ codon, aminoAcid: aa, count, expected: Math.round(expected * 100) / 100, rscu: Math.round(rscu * 100) / 100 });
+    }
+  }
+
+  rscuTable.sort((a, b) => a.aminoAcid.localeCompare(b.aminoAcid) || a.codon.localeCompare(b.codon));
+
+  return {
+    sequenceId,
+    sequenceLength: seq.length,
+    codonCount,
+    positionFrequencies,
+    rscuTable,
   };
 };

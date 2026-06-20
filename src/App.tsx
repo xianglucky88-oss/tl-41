@@ -8,6 +8,7 @@ import AnalysisHistory from './pages/AnalysisHistory';
 import VariantComparison from './pages/VariantComparison';
 import Reports from './pages/Reports';
 import AlignmentVisualizer from './pages/AlignmentVisualizer';
+import GcCodonAnalyzer from './pages/GcCodonAnalyzer';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
         <Route path="/samples" element={<Samples />} />
         <Route path="/workbench" element={<AnalysisWorkbench />} />
         <Route path="/visualizer" element={<AlignmentVisualizer />} />
+        <Route path="/gc-codon" element={<GcCodonAnalyzer />} />
         <Route path="/history" element={<AnalysisHistory />} />
         <Route path="/variants" element={<VariantComparison />} />
         <Route path="/reports" element={<Reports />} />
