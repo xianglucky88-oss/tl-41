@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
 
@@ -1088,5 +1088,198 @@ export const predictOrfs = (
     totalOrfs: allOrfs.length,
     orfs: allOrfs,
     frameSummary,
+  };
+};
+
+export const RESTRICTION_ENZYMES: RestrictionEnzyme[] = [
+  { name: 'EcoRI', recognitionSite: 'GAATTC', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Escherichia coli', temperature: 37, buffer: 'EcoRI', methylationSensitive: true },
+  { name: 'BamHI', recognitionSite: 'GGATCC', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Bacillus amyloliquefaciens', temperature: 37, buffer: 'BamHI', methylationSensitive: true },
+  { name: 'HindIII', recognitionSite: 'AAGCTT', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Haemophilus influenzae', temperature: 37, buffer: 'HindIII', methylationSensitive: false },
+  { name: 'XbaI', recognitionSite: 'TCTAGA', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Xanthomonas badrii', temperature: 37, buffer: 'XbaI', methylationSensitive: true },
+  { name: 'SalI', recognitionSite: 'GTCGAC', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Streptomyces albus', temperature: 37, buffer: 'SalI', methylationSensitive: true },
+  { name: 'PstI', recognitionSite: 'CTGCAG', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: true, type: 'II', organism: 'Providencia stuartii', temperature: 37, buffer: 'PstI', methylationSensitive: true },
+  { name: 'SphI', recognitionSite: 'GCATGC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: true, type: 'II', organism: 'Sphaerococcus sp.', temperature: 37, buffer: 'SphI', methylationSensitive: false },
+  { name: 'KpnI', recognitionSite: 'GGTACC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: true, type: 'II', organism: 'Klebsiella pneumoniae', temperature: 37, buffer: 'KpnI', methylationSensitive: true },
+  { name: 'SacI', recognitionSite: 'GAGCTC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: true, type: 'II', organism: 'Streptomyces achromogenes', temperature: 37, buffer: 'SacI', methylationSensitive: false },
+  { name: 'SmaI', recognitionSite: 'CCCGGG', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Serratia marcescens', temperature: 25, buffer: 'SmaI', methylationSensitive: true },
+  { name: 'XhoI', recognitionSite: 'CTCGAG', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Xanthomonas holcicola', temperature: 37, buffer: 'XhoI', methylationSensitive: true },
+  { name: 'NotI', recognitionSite: 'GCGGCCGC', cutTopStrand: 2, cutBottomStrand: 6, isPalindromic: true, type: 'II', organism: 'Nocardia otitidis', temperature: 37, buffer: 'NotI', methylationSensitive: true },
+  { name: 'NcoI', recognitionSite: 'CCATGG', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Nocardia corallina', temperature: 37, buffer: 'NcoI', methylationSensitive: false },
+  { name: 'NdeI', recognitionSite: 'CATATG', cutTopStrand: 2, cutBottomStrand: 4, isPalindromic: true, type: 'II', organism: 'Neisseria denitrificans', temperature: 37, buffer: 'NdeI', methylationSensitive: false },
+  { name: 'NheI', recognitionSite: 'GCTAGC', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Neisseria mucosa', temperature: 37, buffer: 'NheI', methylationSensitive: false },
+  { name: 'ApaI', recognitionSite: 'GGGCCC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: true, type: 'II', organism: 'Acetobacter pasteurianus', temperature: 37, buffer: 'ApaI', methylationSensitive: true },
+  { name: 'BglII', recognitionSite: 'AGATCT', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Bacillus globigii', temperature: 37, buffer: 'BglII', methylationSensitive: false },
+  { name: 'ClaI', recognitionSite: 'ATCGAT', cutTopStrand: 2, cutBottomStrand: 4, isPalindromic: true, type: 'II', organism: 'Caryophanon latum', temperature: 37, buffer: 'ClaI', methylationSensitive: true },
+  { name: 'EcoRV', recognitionSite: 'GATATC', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Escherichia coli', temperature: 37, buffer: 'EcoRV', methylationSensitive: true },
+  { name: 'ScaI', recognitionSite: 'AGTACT', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Streptomyces caespitosus', temperature: 37, buffer: 'ScaI', methylationSensitive: false },
+  { name: 'SpeI', recognitionSite: 'ACTAGT', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Sphaerococcus sp.', temperature: 37, buffer: 'SpeI', methylationSensitive: false },
+  { name: 'AvrII', recognitionSite: 'CCTAGG', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Anabaena variabilis', temperature: 37, buffer: 'AvrII', methylationSensitive: false },
+  { name: 'MluI', recognitionSite: 'ACGCGT', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Micrococcus luteus', temperature: 37, buffer: 'MluI', methylationSensitive: true },
+  { name: 'AflII', recognitionSite: 'CTTAAG', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Anabaena flos-aquae', temperature: 37, buffer: 'AflII', methylationSensitive: false },
+  { name: 'AgeI', recognitionSite: 'ACCGGT', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Agrobacterium gelatinovorum', temperature: 37, buffer: 'AgeI', methylationSensitive: true },
+  { name: 'AscI', recognitionSite: 'GGCGCGCC', cutTopStrand: 2, cutBottomStrand: 6, isPalindromic: true, type: 'II', organism: 'Arthrobacter sp.', temperature: 37, buffer: 'AscI', methylationSensitive: false },
+  { name: 'FseI', recognitionSite: 'GGCCGGCC', cutTopStrand: 4, cutBottomStrand: 4, isPalindromic: true, type: 'II', organism: 'Frankia sp.', temperature: 37, buffer: 'FseI', methylationSensitive: false },
+  { name: 'PacI', recognitionSite: 'TTAATTAA', cutTopStrand: 2, cutBottomStrand: 6, isPalindromic: true, type: 'II', organism: 'Pseudomonas alcaligenes', temperature: 37, buffer: 'PacI', methylationSensitive: false },
+  { name: 'SwuI', recognitionSite: 'ATTTAAAT', cutTopStrand: 4, cutBottomStrand: 4, isPalindromic: true, type: 'II', organism: 'Sphingomonas wittichii', temperature: 37, buffer: 'SwuI', methylationSensitive: false },
+  { name: 'SbfI', recognitionSite: 'CCTGCAGG', cutTopStrand: 6, cutBottomStrand: 2, isPalindromic: true, type: 'II', organism: 'Streptomyces sp.', temperature: 37, buffer: 'SbfI', methylationSensitive: true },
+  { name: 'AluI', recognitionSite: 'AGCT', cutTopStrand: 2, cutBottomStrand: 2, isPalindromic: true, type: 'II', organism: 'Arthrobacter luteus', temperature: 37, buffer: 'AluI', methylationSensitive: false },
+  { name: 'HaeIII', recognitionSite: 'GGCC', cutTopStrand: 2, cutBottomStrand: 2, isPalindromic: true, type: 'II', organism: 'Haemophilus aegyptius', temperature: 37, buffer: 'HaeIII', methylationSensitive: true },
+  { name: 'MspI', recognitionSite: 'CCGG', cutTopStrand: 1, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Moraxella sp.', temperature: 37, buffer: 'MspI', methylationSensitive: false },
+  { name: 'TaqI', recognitionSite: 'TCGA', cutTopStrand: 1, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Thermus aquaticus', temperature: 65, buffer: 'TaqI', methylationSensitive: true },
+  { name: 'HinfI', recognitionSite: 'GANTC', cutTopStrand: 1, cutBottomStrand: 4, isPalindromic: false, type: 'II', organism: 'Haemophilus influenzae', temperature: 37, buffer: 'HinfI', methylationSensitive: false },
+  { name: 'DdeI', recognitionSite: 'CTNAG', cutTopStrand: 2, cutBottomStrand: 3, isPalindromic: false, type: 'II', organism: 'Desulfovibrio desulfuricans', temperature: 37, buffer: 'DdeI', methylationSensitive: false },
+  { name: 'RsaI', recognitionSite: 'GTAC', cutTopStrand: 2, cutBottomStrand: 2, isPalindromic: true, type: 'II', organism: 'Rhodopseudomonas sphaeroides', temperature: 37, buffer: 'RsaI', methylationSensitive: false },
+  { name: 'MboI', recognitionSite: 'GATC', cutTopStrand: 0, cutBottomStrand: 4, isPalindromic: true, type: 'II', organism: 'Moraxella bovis', temperature: 37, buffer: 'MboI', methylationSensitive: true },
+  { name: 'Sau3AI', recognitionSite: 'GATC', cutTopStrand: 0, cutBottomStrand: 4, isPalindromic: true, type: 'II', organism: 'Staphylococcus aureus', temperature: 37, buffer: 'Sau3AI', methylationSensitive: false },
+  { name: 'Bsu36I', recognitionSite: 'CCTNAGG', cutTopStrand: 1, cutBottomStrand: 6, isPalindromic: false, type: 'II', organism: 'Bacillus subtilis', temperature: 37, buffer: 'Bsu36I', methylationSensitive: false },
+  { name: 'BstEII', recognitionSite: 'GGTNACC', cutTopStrand: 1, cutBottomStrand: 6, isPalindromic: false, type: 'II', organism: 'Bacillus stearothermophilus', temperature: 60, buffer: 'BstEII', methylationSensitive: false },
+  { name: 'BamHI-EcoRI', recognitionSite: 'GGATTC', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: false, type: 'II', organism: 'Synthetic', temperature: 37, buffer: 'NEB', methylationSensitive: false },
+  { name: 'NarI', recognitionSite: 'GGCGCC', cutTopStrand: 2, cutBottomStrand: 4, isPalindromic: true, type: 'II', organism: 'Nocardia argentinensis', temperature: 37, buffer: 'NarI', methylationSensitive: true },
+  { name: 'BsiWI', recognitionSite: 'CGTACG', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Bacillus siamensis', temperature: 55, buffer: 'BsiWI', methylationSensitive: false },
+  { name: 'BsrGI', recognitionSite: 'TGTACA', cutTopStrand: 1, cutBottomStrand: 5, isPalindromic: true, type: 'II', organism: 'Bacillus sp.', temperature: 37, buffer: 'BsrGI', methylationSensitive: false },
+  { name: 'SfiI', recognitionSite: 'GGCCNNNNNGGCC', cutTopStrand: 5, cutBottomStrand: 8, isPalindromic: false, type: 'II', organism: 'Streptomyces fimbriatus', temperature: 37, buffer: 'SfiI', methylationSensitive: false },
+  { name: 'BsmBI', recognitionSite: 'CGTCTC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: false, type: 'IIS', organism: 'Bacillus stearothermophilus', temperature: 37, buffer: 'BsmBI', methylationSensitive: false },
+  { name: 'BsaI', recognitionSite: 'GGTCTC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: false, type: 'IIS', organism: 'Bacillus sp.', temperature: 37, buffer: 'BsaI', methylationSensitive: false },
+  { name: 'FokI', recognitionSite: 'GGATG', cutTopStrand: 9, cutBottomStrand: 13, isPalindromic: false, type: 'IIS', organism: 'Flavobacterium okeanokoites', temperature: 37, buffer: 'FokI', methylationSensitive: false },
+  { name: 'BbsI', recognitionSite: 'GAAGAC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: false, type: 'IIS', organism: 'Bacillus sp.', temperature: 37, buffer: 'BbsI', methylationSensitive: false },
+  { name: 'SapI', recognitionSite: 'GCTCTTC', cutTopStrand: 5, cutBottomStrand: 1, isPalindromic: false, type: 'IIS', organism: 'Streptomyces sp.', temperature: 37, buffer: 'SapI', methylationSensitive: false },
+  { name: 'HpaI', recognitionSite: 'GTTAAC', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Haemophilus parainfluenzae', temperature: 37, buffer: 'HpaI', methylationSensitive: true },
+  { name: 'NruI', recognitionSite: 'TCGCGA', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Nocardia rubra', temperature: 37, buffer: 'NruI', methylationSensitive: true },
+  { name: 'PvuII', recognitionSite: 'CAGCTG', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Proteus vulgaris', temperature: 37, buffer: 'PvuII', methylationSensitive: true },
+  { name: 'StuI', recognitionSite: 'AGGCCT', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: true, type: 'II', organism: 'Streptomyces tubercidicus', temperature: 37, buffer: 'StuI', methylationSensitive: false },
+  { name: 'SgrAI', recognitionSite: 'CRCCGGYG', cutTopStrand: 2, cutBottomStrand: 6, isPalindromic: false, type: 'II', organism: 'Streptomyces griseus', temperature: 37, buffer: 'SgrAI', methylationSensitive: false },
+  { name: 'BsrBI', recognitionSite: 'CCGCTC', cutTopStrand: 3, cutBottomStrand: 3, isPalindromic: false, type: 'II', organism: 'Bacillus sp.', temperature: 37, buffer: 'BsrBI', methylationSensitive: false },
+];
+
+const IUPAC_EXPANSION: Record<string, string[]> = {
+  'A': ['A'], 'T': ['T'], 'G': ['G'], 'C': ['C'],
+  'R': ['A', 'G'], 'Y': ['C', 'T'], 'S': ['G', 'C'], 'W': ['A', 'T'],
+  'K': ['G', 'T'], 'M': ['A', 'C'], 'B': ['C', 'G', 'T'], 'D': ['A', 'G', 'T'],
+  'H': ['A', 'C', 'T'], 'V': ['A', 'C', 'G'], 'N': ['A', 'T', 'G', 'C'],
+};
+
+const expandIupacPattern = (pattern: string): string[] => {
+  if (pattern.length === 0) return [''];
+  const first = pattern[0];
+  const rest = pattern.slice(1);
+  const expansions = IUPAC_EXPANSION[first] || [first];
+  const restExpansions = expandIupacPattern(rest);
+  const result: string[] = [];
+  for (const c of expansions) {
+    for (const suffix of restExpansions) {
+      result.push(c + suffix);
+    }
+  }
+  return result;
+};
+
+const findCutPositions = (sequence: string, enzyme: RestrictionEnzyme): CutSite[] => {
+  const seq = sequence.toUpperCase();
+  const patterns = expandIupacPattern(enzyme.recognitionSite.toUpperCase());
+  const positions: CutSite[] = [];
+
+  for (const pattern of patterns) {
+    let searchStart = 0;
+    while (searchStart < seq.length) {
+      const idx = seq.indexOf(pattern, searchStart);
+      if (idx === -1) break;
+      positions.push({
+        enzymeName: enzyme.name,
+        position: idx,
+        topCutOffset: enzyme.cutTopStrand,
+        bottomCutOffset: enzyme.cutBottomStrand,
+        recognitionSite: enzyme.recognitionSite,
+        isPalindromic: enzyme.isPalindromic,
+      });
+      searchStart = idx + 1;
+    }
+  }
+
+  return positions;
+};
+
+export const digestSequence = (
+  sequence: string,
+  sequenceId: string,
+  selectedEnzymeNames: string[]
+): DigestionResult => {
+  const seq = sequence.toUpperCase().replace(/[^ATGC]/g, '');
+  const allCutSites: CutSite[] = [];
+
+  for (const name of selectedEnzymeNames) {
+    const enzyme = RESTRICTION_ENZYMES.find(e => e.name === name);
+    if (!enzyme) continue;
+    const sites = findCutPositions(seq, enzyme);
+    allCutSites.push(...sites);
+  }
+
+  allCutSites.sort((a, b) => a.position - b.position);
+
+  const uniqueCutSites: CutSite[] = [];
+  const seen = new Set<string>();
+  for (const cs of allCutSites) {
+    const key = `${cs.enzymeName}_${cs.position}`;
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueCutSites.push(cs);
+    }
+  }
+
+  const cutPositions = uniqueCutSites.map(cs => cs.position + cs.topCutOffset);
+  cutPositions.sort((a, b) => a - b);
+  const uniqueCuts = [...new Set(cutPositions)].sort((a, b) => a - b);
+
+  const fragments: DigestionFragment[] = [];
+  if (uniqueCuts.length === 0) {
+    fragments.push({
+      start: 1,
+      end: seq.length,
+      length: seq.length,
+      leftEnzyme: '—',
+      rightEnzyme: '—',
+    });
+  } else {
+    if (uniqueCuts[0] > 0) {
+      fragments.push({
+        start: 1,
+        end: uniqueCuts[0],
+        length: uniqueCuts[0],
+        leftEnzyme: '—',
+        rightEnzyme: uniqueCutSites.find(cs => cs.position + cs.topCutOffset === uniqueCuts[0])?.enzymeName || '—',
+      });
+    }
+    for (let i = 0; i < uniqueCuts.length - 1; i++) {
+      const leftEnzyme = uniqueCutSites.find(cs => cs.position + cs.topCutOffset === uniqueCuts[i])?.enzymeName || '—';
+      const rightEnzyme = uniqueCutSites.find(cs => cs.position + cs.topCutOffset === uniqueCuts[i + 1])?.enzymeName || '—';
+      fragments.push({
+        start: uniqueCuts[i] + 1,
+        end: uniqueCuts[i + 1],
+        length: uniqueCuts[i + 1] - uniqueCuts[i],
+        leftEnzyme,
+        rightEnzyme,
+      });
+    }
+    if (uniqueCuts[uniqueCuts.length - 1] < seq.length) {
+      const leftEnzyme = uniqueCutSites.find(cs => cs.position + cs.topCutOffset === uniqueCuts[uniqueCuts.length - 1])?.enzymeName || '—';
+      fragments.push({
+        start: uniqueCuts[uniqueCuts.length - 1] + 1,
+        end: seq.length,
+        length: seq.length - uniqueCuts[uniqueCuts.length - 1],
+        leftEnzyme,
+        rightEnzyme: '—',
+      });
+    }
+  }
+
+  fragments.sort((a, b) => b.length - a.length);
+
+  return {
+    sequenceId,
+    sequenceLength: seq.length,
+    selectedEnzymes: selectedEnzymeNames,
+    totalCutSites: uniqueCutSites.length,
+    cutSites: uniqueCutSites,
+    fragments,
+    fragmentCount: fragments.length,
   };
 };

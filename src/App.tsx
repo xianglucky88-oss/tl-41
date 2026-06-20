@@ -10,6 +10,7 @@ import Reports from './pages/Reports';
 import AlignmentVisualizer from './pages/AlignmentVisualizer';
 import GcCodonAnalyzer from './pages/GcCodonAnalyzer';
 import OrfPredictor from './pages/OrfPredictor';
+import RestrictionEnzymeAnalyzer from './pages/RestrictionEnzymeAnalyzer';
 
 export default function App() {
   return (
@@ -22,6 +23,7 @@ export default function App() {
         <Route path="/visualizer" element={<AlignmentVisualizer />} />
         <Route path="/gc-codon" element={<GcCodonAnalyzer />} />
         <Route path="/orf-predictor" element={<OrfPredictor />} />
+        <Route path="/restriction-enzyme" element={<RestrictionEnzymeAnalyzer />} />
         <Route path="/history" element={<AnalysisHistory />} />
         <Route path="/variants" element={<VariantComparison />} />
         <Route path="/reports" element={<Reports />} />

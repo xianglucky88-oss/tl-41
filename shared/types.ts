@@ -322,6 +322,46 @@ export interface OrfPredictionResult {
   }[];
 }
 
+export interface RestrictionEnzyme {
+  name: string;
+  recognitionSite: string;
+  cutTopStrand: number;
+  cutBottomStrand: number;
+  isPalindromic: boolean;
+  type: 'I' | 'II' | 'IIS' | 'III';
+  organism: string;
+  temperature: number;
+  buffer: string;
+  methylationSensitive: boolean;
+}
+
+export interface CutSite {
+  enzymeName: string;
+  position: number;
+  topCutOffset: number;
+  bottomCutOffset: number;
+  recognitionSite: string;
+  isPalindromic: boolean;
+}
+
+export interface DigestionFragment {
+  start: number;
+  end: number;
+  length: number;
+  leftEnzyme: string;
+  rightEnzyme: string;
+}
+
+export interface DigestionResult {
+  sequenceId: string;
+  sequenceLength: number;
+  selectedEnzymes: string[];
+  totalCutSites: number;
+  cutSites: CutSite[];
+  fragments: DigestionFragment[];
+  fragmentCount: number;
+}
+
 export interface CodonPreferenceResult {
   sequenceId: string;
   sequenceLength: number;
