@@ -434,3 +434,63 @@ export interface PrimerDesignResult {
   totalReverseChecked: number;
   totalPairsEvaluated: number;
 }
+
+export interface CpgSite {
+  position: number;
+  cPosition: number;
+  gPosition: number;
+  methylated: boolean;
+  contextSequence: string;
+  inIsland: boolean;
+  islandId?: string;
+}
+
+export interface CpgIsland {
+  id: string;
+  startPosition: number;
+  endPosition: number;
+  length: number;
+  gcPercent: number;
+  cpgCount: number;
+  observedCpg: number;
+  expectedCpg: number;
+  oeRatio: number;
+  cpgDensity: number;
+  cSites: number;
+  gSites: number;
+  sequence: string;
+}
+
+export interface CpgScanParameters {
+  minLength: number;
+  minGcPercent: number;
+  minOeRatio: number;
+  initialMethylationRate: number;
+}
+
+export interface CpgIslandScanResult {
+  sequenceId: string;
+  sequenceLength: number;
+  parameters: CpgScanParameters;
+  totalCpgSites: number;
+  totalIslands: number;
+  methylatedCount: number;
+  unmethylatedCount: number;
+  overallMethylationRate: number;
+  islands: CpgIsland[];
+  cpgSites: CpgSite[];
+}
+
+export interface MethylationToggleResult {
+  site: CpgSite;
+  previousState: boolean;
+  newState: boolean;
+  islandMethylationRate?: number;
+}
+
+export const DEFAULT_CPG_SCAN_PARAMETERS: CpgScanParameters = {
+  minLength: 200,
+  minGcPercent: 50,
+  minOeRatio: 0.6,
+  initialMethylationRate: 0.3,
+};

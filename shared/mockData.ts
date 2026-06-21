@@ -1,4 +1,5 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult, CpgSite, CpgIsland, CpgScanParameters, CpgIslandScanResult, MethylationToggleResult } from './types.js';
+import { DEFAULT_CPG_SCAN_PARAMETERS } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
 
@@ -1640,4 +1641,237 @@ export const designPrimers = (
     totalReverseChecked: totalRev,
     totalPairsEvaluated,
   };
+};
+
+const findAllCpgSites = (
+  seq: string,
+  initialMethylationRate: number
+): CpgSite[] => {
+  const sites: CpgSite[] = [];
+  for (let i = 0; i < seq.length - 1; i++) {
+    if (seq[i] === 'C' && seq[i + 1] === 'G') {
+      const contextStart = Math.max(0, i - 2);
+      const contextEnd = Math.min(seq.length, i + 4);
+      sites.push({
+        position: i + 1,
+        cPosition: i + 1,
+        gPosition: i + 2,
+        methylated: Math.random() < initialMethylationRate,
+        contextSequence: seq.slice(contextStart, contextEnd),
+        inIsland: false,
+      });
+    }
+  }
+  return sites;
+};
+
+const computeWindowStats = (seq: string, start: number, end: number) => {
+  let cCount = 0;
+  let gCount = 0;
+  let cpgCount = 0;
+  const len = end - start + 1;
+
+  for (let i = start; i <= end; i++) {
+    const base = seq[i];
+    if (base === 'C') cCount++;
+    else if (base === 'G') gCount++;
+    if (i < end && seq[i] === 'C' && seq[i + 1] === 'G') cpgCount++;
+  }
+
+  const gcPercent = len > 0 ? ((cCount + gCount) / len) * 100 : 0;
+  const expectedCpg = len > 0 ? (cCount * gCount) / len : 0;
+  const oeRatio = expectedCpg > 0 ? cpgCount / expectedCpg : 0;
+
+  return { cCount, gCount, cpgCount, gcPercent, expectedCpg, oeRatio, length: len };
+};
+
+export const scanCpgIslands = (
+  sequence: string,
+  sequenceId: string,
+  customParams?: Partial<CpgScanParameters>
+): CpgIslandScanResult => {
+  const seq = sequence.toUpperCase().replace(/[^ATGC]/g, '');
+  const params: CpgScanParameters = { ...DEFAULT_CPG_SCAN_PARAMETERS, ...(customParams || {}) };
+  const { minLength, minGcPercent, minOeRatio, initialMethylationRate } = params;
+
+  const cpgSites = findAllCpgSites(seq, initialMethylationRate);
+  const islands: CpgIsland[] = [];
+  let islandCounter = 0;
+
+  if (seq.length >= minLength) {
+    const WINDOW_STEP = 1;
+    let i = 0;
+
+    while (i <= seq.length - minLength) {
+      let windowStart = i;
+      let windowEnd = i + minLength - 1;
+      let stats = computeWindowStats(seq, windowStart, windowEnd);
+
+      if (stats.gcPercent >= minGcPercent && stats.oeRatio >= minOeRatio) {
+        while (windowEnd + 1 < seq.length) {
+          const nextEnd = windowEnd + 1;
+          const nextStats = computeWindowStats(seq, windowStart, nextEnd);
+          if (nextStats.gcPercent >= minGcPercent && nextStats.oeRatio >= minOeRatio) {
+            windowEnd = nextEnd;
+            stats = nextStats;
+          } else {
+            break;
+          }
+        }
+
+        while (windowEnd - windowStart + 1 > minLength) {
+          const nextStart = windowStart + 1;
+          if (windowEnd - nextStart + 1 < minLength) break;
+          const nextStats = computeWindowStats(seq, nextStart, windowEnd);
+          if (nextStats.gcPercent >= minGcPercent && nextStats.oeRatio >= minOeRatio) {
+            windowStart = nextStart;
+            stats = nextStats;
+          } else {
+            break;
+          }
+        }
+
+        if (islands.length > 0) {
+          const lastIsland = islands[islands.length - 1];
+          const lastIslandEnd0Based = lastIsland.endPosition - 1;
+          if (windowStart <= lastIslandEnd0Based + 1) {
+            const mergedStart = lastIsland.startPosition - 1;
+            const mergedEnd = windowEnd;
+            if (mergedEnd - mergedStart + 1 >= minLength) {
+              const mergedStats = computeWindowStats(seq, mergedStart, mergedEnd);
+              if (mergedStats.gcPercent >= minGcPercent && mergedStats.oeRatio >= minOeRatio) {
+                lastIsland.endPosition = mergedEnd + 1;
+                lastIsland.length = lastIsland.endPosition - lastIsland.startPosition + 1;
+                lastIsland.gcPercent = Math.round(mergedStats.gcPercent * 100) / 100;
+                lastIsland.observedCpg = mergedStats.cpgCount;
+                lastIsland.expectedCpg = Math.round(mergedStats.expectedCpg * 100) / 100;
+                lastIsland.oeRatio = Math.round(mergedStats.oeRatio * 100) / 100;
+                lastIsland.cSites = mergedStats.cCount;
+                lastIsland.gSites = mergedStats.gCount;
+                lastIsland.cpgCount = mergedStats.cpgCount;
+                lastIsland.cpgDensity = Math.round((mergedStats.cpgCount / mergedStats.length) * 10000) / 100;
+                lastIsland.sequence = seq.slice(mergedStart, mergedEnd + 1);
+                i = windowEnd + WINDOW_STEP;
+                continue;
+              }
+            }
+          }
+        }
+
+        const finalLength = windowEnd - windowStart + 1;
+        if (finalLength < minLength) {
+          i += WINDOW_STEP;
+          continue;
+        }
+
+        islandCounter++;
+        const islandId = `cpg_island_${String(islandCounter).padStart(3, '0')}`;
+        islands.push({
+          id: islandId,
+          startPosition: windowStart + 1,
+          endPosition: windowEnd + 1,
+          length: finalLength,
+          gcPercent: Math.round(stats.gcPercent * 100) / 100,
+          cpgCount: stats.cpgCount,
+          observedCpg: stats.cpgCount,
+          expectedCpg: Math.round(stats.expectedCpg * 100) / 100,
+          oeRatio: Math.round(stats.oeRatio * 100) / 100,
+          cpgDensity: Math.round((stats.cpgCount / finalLength) * 10000) / 100,
+          cSites: stats.cCount,
+          gSites: stats.gCount,
+          sequence: seq.slice(windowStart, windowEnd + 1),
+        });
+
+        i = windowEnd + WINDOW_STEP;
+      } else {
+        i += WINDOW_STEP;
+      }
+    }
+  }
+
+  for (const site of cpgSites) {
+    for (const island of islands) {
+      if (site.position >= island.startPosition && site.position <= island.endPosition) {
+        site.inIsland = true;
+        site.islandId = island.id;
+        break;
+      }
+    }
+  }
+
+  const methylatedCount = cpgSites.filter(s => s.methylated).length;
+  const unmethylatedCount = cpgSites.length - methylatedCount;
+
+  return {
+    sequenceId,
+    sequenceLength: seq.length,
+    parameters: params,
+    totalCpgSites: cpgSites.length,
+    totalIslands: islands.length,
+    methylatedCount,
+    unmethylatedCount,
+    overallMethylationRate: cpgSites.length > 0 ? Math.round((methylatedCount / cpgSites.length) * 10000) / 10000 : 0,
+    islands,
+    cpgSites,
+  };
+};
+
+export const toggleMethylation = (
+  result: CpgIslandScanResult,
+  sitePosition: number
+): MethylationToggleResult | null => {
+  const site = result.cpgSites.find(s => s.position === sitePosition);
+  if (!site) return null;
+
+  const previousState = site.methylated;
+  site.methylated = !site.methylated;
+
+  result.methylatedCount = site.methylated ? result.methylatedCount + 1 : result.methylatedCount - 1;
+  result.unmethylatedCount = result.totalCpgSites - result.methylatedCount;
+  result.overallMethylationRate = result.totalCpgSites > 0
+    ? Math.round((result.methylatedCount / result.totalCpgSites) * 10000) / 10000
+    : 0;
+
+  let islandMethylationRate: number | undefined;
+  if (site.islandId) {
+    const island = result.islands.find(i => i.id === site.islandId);
+    if (island) {
+      const sitesInIsland = result.cpgSites.filter(s => s.islandId === island.id);
+      const methInIsland = sitesInIsland.filter(s => s.methylated).length;
+      islandMethylationRate = sitesInIsland.length > 0
+        ? Math.round((methInIsland / sitesInIsland.length) * 10000) / 10000
+        : 0;
+    }
+  }
+
+  return {
+    site: { ...site },
+    previousState,
+    newState: site.methylated,
+    islandMethylationRate,
+  };
+};
+
+export const batchToggleMethylation = (
+  result: CpgIslandScanResult,
+  islandId: string,
+  methylate: boolean
+): number => {
+  const targetSites = result.cpgSites.filter(s => s.islandId === islandId);
+  let changedCount = 0;
+
+  for (const site of targetSites) {
+    if (site.methylated !== methylate) {
+      site.methylated = methylate;
+      changedCount++;
+    }
+  }
+
+  result.methylatedCount = result.cpgSites.filter(s => s.methylated).length;
+  result.unmethylatedCount = result.totalCpgSites - result.methylatedCount;
+  result.overallMethylationRate = result.totalCpgSites > 0
+    ? Math.round((result.methylatedCount / result.totalCpgSites) * 10000) / 10000
+    : 0;
+
+  return changedCount;
 };

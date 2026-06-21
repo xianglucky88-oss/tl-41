@@ -4,9 +4,10 @@ import type {
   Project, Batch, Sample, AnalysisRecord, Variant,
   AlignmentResult, AnalysisReport, AlignmentTool,
   ApiResponse, PaginatedResponse, PaginationParams,
-  PrimerDesignResult, PrimerConstraints
+  PrimerDesignResult, PrimerConstraints,
+  CpgIslandScanResult, CpgScanParameters
 } from '../shared/types.js';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics } from '../shared/mockData.js';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation } from '../shared/mockData.js';
 import { ALIGNMENT_TOOLS } from '../shared/toolConfigs.js';
 
 const app = express();
@@ -504,6 +505,57 @@ app.post('/api/primers/design', async (req, res) => {
   } catch {
     res.status(500).json(errorResponse('引物设计失败'));
   }
+});
+
+app.post('/api/cpg/scan', async (req, res) => {
+  const { sampleId, parameters } = req.body;
+  if (!sampleId) {
+    return res.status(400).json(errorResponse('请提供样本ID'));
+  }
+  const sample = MOCK_SAMPLES.find((s: Sample) => s.id === sampleId);
+  if (!sample) {
+    return res.status(404).json(errorResponse('样本不存在'));
+  }
+  try {
+    await new Promise(r => setTimeout(r, 500));
+    const result = scanCpgIslands(sample.sequence, sampleId, parameters as Partial<CpgScanParameters> | undefined);
+    res.json(successResponse(result, 'CpG 岛扫描完成'));
+  } catch {
+    res.status(500).json(errorResponse('CpG 岛扫描失败'));
+  }
+});
+
+let lastCpgScanResult: CpgIslandScanResult | null = null;
+
+app.post('/api/cpg/toggle', (req, res) => {
+  const { sitePosition, scanResult } = req.body;
+  if (sitePosition == null) {
+    return res.status(400).json(errorResponse('请提供 CpG 位点位置'));
+  }
+  const result = scanResult || lastCpgScanResult;
+  if (!result) {
+    return res.status(400).json(errorResponse('请先执行 CpG 岛扫描'));
+  }
+  const toggleResult = toggleMethylation(result as CpgIslandScanResult, Number(sitePosition));
+  if (!toggleResult) {
+    return res.status(404).json(errorResponse('未找到指定 CpG 位点'));
+  }
+  lastCpgScanResult = result as CpgIslandScanResult;
+  res.json(successResponse(toggleResult, '甲基化状态已切换'));
+});
+
+app.post('/api/cpg/batch-toggle', (req, res) => {
+  const { islandId, methylate, scanResult } = req.body;
+  if (!islandId) {
+    return res.status(400).json(errorResponse('请提供 CpG 岛 ID'));
+  }
+  const result = scanResult || lastCpgScanResult;
+  if (!result) {
+    return res.status(400).json(errorResponse('请先执行 CpG 岛扫描'));
+  }
+  const changedCount = batchToggleMethylation(result as CpgIslandScanResult, islandId, Boolean(methylate));
+  lastCpgScanResult = result as CpgIslandScanResult;
+  res.json(successResponse({ changedCount, islandId, methylate: Boolean(methylate) }, `批量切换完成，共影响 ${changedCount} 个位点`));
 });
 
 app.listen(PORT, () => {

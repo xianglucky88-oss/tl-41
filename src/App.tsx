@@ -12,6 +12,7 @@ import GcCodonAnalyzer from './pages/GcCodonAnalyzer';
 import OrfPredictor from './pages/OrfPredictor';
 import RestrictionEnzymeAnalyzer from './pages/RestrictionEnzymeAnalyzer';
 import PcrPrimerDesigner from './pages/PcrPrimerDesigner';
+import CpgIslandScanner from './pages/CpgIslandScanner';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
         <Route path="/orf-predictor" element={<OrfPredictor />} />
         <Route path="/restriction-enzyme" element={<RestrictionEnzymeAnalyzer />} />
         <Route path="/primer-design" element={<PcrPrimerDesigner />} />
+        <Route path="/cpg-island" element={<CpgIslandScanner />} />
         <Route path="/history" element={<AnalysisHistory />} />
         <Route path="/variants" element={<VariantComparison />} />
         <Route path="/reports" element={<Reports />} />

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics } from '@shared/types';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics } from '@shared/mockData';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult } from '@shared/types';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
 interface AnalysisState {
@@ -23,6 +23,7 @@ interface AnalysisState {
   digestionResult: DigestionResult | null;
   primerDesignResult: PrimerDesignResult | null;
   primerConstraints: PrimerConstraints;
+  cpgScanResult: CpgIslandScanResult | null;
   restrictionEnzymes: typeof RESTRICTION_ENZYMES;
   selectedSampleIds: string[];
   selectedVariantIds: string[];
@@ -77,6 +78,10 @@ interface AnalysisActions {
   setPrimerConstraints: (constraints: Partial<PrimerConstraints>) => void;
   computePrimerMetrics: (sequence: string) => PrimerMetrics;
   clearPrimerResults: () => void;
+  scanCpgIslands: (sampleId: string, params?: Partial<CpgScanParameters>) => Promise<void>;
+  toggleMethylationSite: (sitePosition: number) => MethylationToggleResult | null;
+  batchToggleMethylationSites: (islandId: string, methylate: boolean) => number;
+  clearCpgResults: () => void;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -132,6 +137,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   digestionResult: null,
   primerDesignResult: null,
   primerConstraints: { ...DEFAULT_PRIMER_CONSTRAINTS },
+  cpgScanResult: null,
   restrictionEnzymes: RESTRICTION_ENZYMES,
   selectedSampleIds: [],
   selectedVariantIds: [],
@@ -804,5 +810,47 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
 
   clearPrimerResults: () => {
     set({ primerDesignResult: null });
+  },
+
+  scanCpgIslands: async (sampleId, params) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(500);
+      const sample = get().samples.find(s => s.id === sampleId);
+      if (!sample) {
+        set({ error: '样本不存在', loading: false });
+        return;
+      }
+      const result = scanCpgIslands(sample.sequence, sampleId, params);
+      set({ cpgScanResult: result, loading: false });
+    } catch {
+      set({ error: 'CpG 岛扫描失败', loading: false });
+    }
+  },
+
+  toggleMethylationSite: (sitePosition) => {
+    const state = get();
+    if (!state.cpgScanResult) return null;
+    const newResult = { ...state.cpgScanResult };
+    const toggleResult = toggleMethylation(newResult, sitePosition);
+    if (toggleResult) {
+      set({ cpgScanResult: { ...newResult } });
+    }
+    return toggleResult;
+  },
+
+  batchToggleMethylationSites: (islandId, methylate) => {
+    const state = get();
+    if (!state.cpgScanResult) return 0;
+    const newResult = { ...state.cpgScanResult };
+    const changedCount = batchToggleMethylation(newResult, islandId, methylate);
+    if (changedCount > 0) {
+      set({ cpgScanResult: { ...newResult } });
+    }
+    return changedCount;
+  },
+
+  clearCpgResults: () => {
+    set({ cpgScanResult: null });
   },
 }));
