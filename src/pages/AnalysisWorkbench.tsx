@@ -1,15 +1,81 @@
-import { useState, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import {
-  Workflow, Play, Save, RotateCcw, Plus, Trash2, ChevronRight,
-  Settings, GitBranch, Clock, FileText, Zap, Copy, History
+  Workflow, Play, Save, RotateCcw, GitBranch, Clock, FileText, History, Sparkles, Layers
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import StatusBadge from '@/components/StatusBadge';
-import DnaSequenceViewer from '@/components/DnaSequenceViewer';
-import type { AlignmentTool, AlignmentToolConfig, AnalysisStep, AnalysisRecord, AlignmentResult } from '@shared/types';
+import DAGCanvas from '@/components/DAGCanvas/DAGCanvas';
+import ToolPalette from '@/components/DAGCanvas/ToolPalette';
+import NodePropertyPanel from '@/components/DAGCanvas/NodePropertyPanel';
+import { createNode } from '@/components/DAGCanvas/DAGCanvas';
+import type { WorkflowGraph, WorkflowNode, WorkflowEdge, AlignmentTool, AnalysisStep, AnalysisRecord, AlignmentResult } from '@shared/types';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
-type StepEditorMode = 'select' | 'configure' | 'result';
+function createInitialGraph(): WorkflowGraph {
+  const inputNode = createNode('input', { x: 60, y: 200 });
+  const toolNode = createNode('tool', { x: 340, y: 200 }, 'blastn');
+  const outputNode = createNode('output', { x: 620, y: 200 });
+
+  const edge1: WorkflowEdge = {
+    id: `edge_${Date.now()}_1`,
+    source: inputNode.id,
+    target: toolNode.id,
+    sourcePort: 'out-1',
+    targetPort: 'in-1',
+  };
+
+  const edge2: WorkflowEdge = {
+    id: `edge_${Date.now()}_2`,
+    source: toolNode.id,
+    target: outputNode.id,
+    sourcePort: 'out-1',
+    targetPort: 'in-1',
+  };
+
+  return {
+    nodes: [inputNode, toolNode, outputNode],
+    edges: [edge1, edge2],
+  };
+}
+
+function topologicalSort(graph: WorkflowGraph): WorkflowNode[] {
+  const inDegree: Record<string, number> = {};
+  const adjacency: Record<string, string[]> = {};
+
+  graph.nodes.forEach(node => {
+    inDegree[node.id] = 0;
+    adjacency[node.id] = [];
+  });
+
+  graph.edges.forEach(edge => {
+    adjacency[edge.source].push(edge.target);
+    inDegree[edge.target] = (inDegree[edge.target] || 0) + 1;
+  });
+
+  const queue: string[] = [];
+  Object.keys(inDegree).forEach(id => {
+    if (inDegree[id] === 0) {
+      queue.push(id);
+    }
+  });
+
+  const result: WorkflowNode[] = [];
+  while (queue.length > 0) {
+    const nodeId = queue.shift()!;
+    const node = graph.nodes.find(n => n.id === nodeId);
+    if (node) {
+      result.push(node);
+    }
+    adjacency[nodeId].forEach(neighbor => {
+      inDegree[neighbor]--;
+      if (inDegree[neighbor] === 0) {
+        queue.push(neighbor);
+      }
+    });
+  }
+
+  return result;
+}
 
 export default function AnalysisWorkbench() {
   const {
@@ -24,10 +90,9 @@ export default function AnalysisWorkbench() {
   const [analysisDescription, setAnalysisDescription] = useState('');
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedBatchId, setSelectedBatchId] = useState('');
-  const [steps, setSteps] = useState<Array<{ id: string; toolId: AlignmentTool; parameters: Record<string, string | number | boolean> }>>([]);
-  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
-  const [editorMode, setEditorMode] = useState<StepEditorMode>('select');
-  const [selectedTool, setSelectedTool] = useState<AlignmentToolConfig | null>(null);
+
+  const [graph, setGraph] = useState<WorkflowGraph>(createInitialGraph());
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
 
   const availableSamples = selectedBatchId
@@ -36,49 +101,72 @@ export default function AnalysisWorkbench() {
     ? samples.filter(s => s.projectId === selectedProjectId)
     : samples;
 
-  const selectedStep = steps.find(s => s.id === selectedStepId);
-  const selectedToolConfig = selectedStep ? ALIGNMENT_TOOLS.find(t => t.id === selectedStep.toolId) : null;
+  const filteredBatches = selectedProjectId
+    ? batches.filter(b => b.projectId === selectedProjectId)
+    : batches;
 
-  const addStep = (toolId: AlignmentTool) => {
-    const tool = ALIGNMENT_TOOLS.find(t => t.id === toolId);
-    if (!tool) return;
+  const selectedNode = useMemo(
+    () => graph.nodes.find(n => n.id === selectedNodeId) || null,
+    [graph.nodes, selectedNodeId]
+  );
 
-    const defaultParams: Record<string, string | number | boolean> = {};
-    tool.parameters.forEach(p => {
-      defaultParams[p.name] = p.defaultValue;
-    });
+  const toolNodes = useMemo(
+    () => graph.nodes.filter(n => n.type === 'tool'),
+    [graph.nodes]
+  );
 
-    const newStep = {
-      id: `step_${Date.now()}`,
-      toolId,
-      parameters: defaultParams,
-    };
-
-    setSteps([...steps, newStep]);
-    setSelectedStepId(newStep.id);
-    setSelectedTool(tool);
-    setEditorMode('configure');
+  const handleAddNode = (node: WorkflowNode) => {
+    setGraph(prev => ({
+      ...prev,
+      nodes: [...prev.nodes, node],
+    }));
   };
 
-  const updateStepParameter = (stepId: string, paramName: string, value: string | number | boolean) => {
-    setSteps(steps.map(s =>
-      s.id === stepId ? { ...s, parameters: { ...s.parameters, [paramName]: value } } : s
-    ));
+  const handleUpdateNode = (nodeId: string, updates: Partial<WorkflowNode>) => {
+    setGraph(prev => ({
+      ...prev,
+      nodes: prev.nodes.map(n =>
+        n.id === nodeId ? { ...n, ...updates } : n
+      ),
+    }));
   };
 
-  const removeStep = (stepId: string) => {
-    setSteps(steps.filter(s => s.id !== stepId));
-    if (selectedStepId === stepId) {
-      setSelectedStepId(null);
-      setEditorMode('select');
+  const handleDeleteNode = (nodeId: string) => {
+    setGraph(prev => ({
+      nodes: prev.nodes.filter(n => n.id !== nodeId),
+      edges: prev.edges.filter(e => e.source !== nodeId && e.target !== nodeId),
+    }));
+    if (selectedNodeId === nodeId) {
+      setSelectedNodeId(null);
     }
+  };
+
+  const handleAddEdge = (edge: WorkflowEdge) => {
+    setGraph(prev => ({
+      ...prev,
+      edges: [...prev.edges, edge],
+    }));
+  };
+
+  const handleDeleteEdge = (edgeId: string) => {
+    setGraph(prev => ({
+      ...prev,
+      edges: prev.edges.filter(e => e.id !== edgeId),
+    }));
+  };
+
+  const handleUpdateGraph = (newGraph: WorkflowGraph) => {
+    setGraph(newGraph);
   };
 
   const runAnalysis = async () => {
-    if (!analysisName || !selectedProjectId || selectedSampleIds.length === 0 || steps.length === 0) {
-      alert('请填写分析名称、选择项目、样本和至少一个分析步骤');
+    if (!analysisName || !selectedProjectId || selectedSampleIds.length === 0 || toolNodes.length === 0) {
+      alert('请填写分析名称、选择项目、样本和至少一个工具节点');
       return;
     }
+
+    const sortedNodes = topologicalSort(graph);
+    const toolSteps = sortedNodes.filter(n => n.type === 'tool');
 
     const analysisData: Partial<AnalysisRecord> = {
       name: analysisName,
@@ -88,33 +176,44 @@ export default function AnalysisWorkbench() {
       sampleIds: selectedSampleIds,
       status: 'running',
       startedAt: new Date().toISOString(),
-      steps: steps.map((s, idx) => ({
-        stepId: s.id,
-        stepName: `${ALIGNMENT_TOOLS.find(t => t.id === s.toolId)?.name || '分析'} - 步骤${idx + 1}`,
-        toolId: s.toolId,
-        toolVersion: ALIGNMENT_TOOLS.find(t => t.id === s.toolId)?.version || '1.0',
-        parameters: s.parameters,
-        startTime: new Date(Date.now() + idx * 60000).toISOString(),
-        endTime: '',
-        status: idx === 0 ? 'running' : 'pending',
-        inputFileIds: [],
-        outputFileIds: [],
-        log: idx === 0 ? '分析进行中...' : '',
-      })),
+      steps: toolSteps.map((node, idx) => {
+        const tool = ALIGNMENT_TOOLS.find(t => t.id === node.toolId);
+        return {
+          stepId: node.id,
+          stepName: node.label || tool?.name || `步骤${idx + 1}`,
+          toolId: node.toolId as AlignmentTool,
+          toolVersion: tool?.version || '1.0',
+          parameters: node.parameters || {},
+          startTime: new Date(Date.now() + idx * 60000).toISOString(),
+          endTime: '',
+          status: idx === 0 ? 'running' : 'pending',
+          inputFileIds: [],
+          outputFileIds: [],
+          log: idx === 0 ? '分析进行中...' : '',
+        } as AnalysisStep;
+      }),
       parametersSnapshot: {
-        steps: steps.map(s => ({
-          tool: s.toolId,
-          parameters: s.parameters,
+        graph: {
+        nodes: graph.nodes.map(n => ({
+          id: n.id,
+          type: n.type,
+          tool: n.toolId,
+          parameters: n.parameters,
+          label: n.label,
         })),
+        edges: graph.edges,
+      },
         selectedSamples: selectedSampleIds,
       },
     };
 
     const newAnalysis = await createAnalysis(analysisData);
 
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
-      await runAlignment(step.toolId, step.parameters, selectedSampleIds);
+    for (let i = 0; i < toolSteps.length; i++) {
+      const step = toolSteps[i];
+      if (step.toolId && step.parameters) {
+        await runAlignment(step.toolId, step.parameters, selectedSampleIds);
+      }
     }
 
     const totalVars = Math.floor(100 + Math.random() * 1000);
@@ -132,8 +231,9 @@ export default function AnalysisWorkbench() {
   };
 
   const saveAsTemplate = () => {
-    if (steps.length === 0) {
-      alert('请先添加至少一个分析步骤');
+    const toolNodesCount = graph.nodes.filter(n => n.type === 'tool');
+    if (toolNodesCount.length === 0) {
+      alert('请先添加至少一个工具节点');
       return;
     }
     const templateName = prompt('请输入模板名称:', `模板_${Date.now()}`);
@@ -147,7 +247,7 @@ export default function AnalysisWorkbench() {
       templates.push({
         id: `template_${Date.now()}`,
         name: templateName.trim(),
-        steps: steps,
+        graph: graph,
         parametersSnapshot: {},
         createdAt: new Date().toISOString(),
       });
@@ -161,24 +261,18 @@ export default function AnalysisWorkbench() {
     setAnalysisDescription('');
     setSelectedProjectId('');
     setSelectedBatchId('');
-    setSteps([]);
-    setSelectedStepId(null);
-    setSelectedTool(null);
-    setEditorMode('select');
+    setGraph(createInitialGraph());
+    setSelectedNodeId(null);
     setSelectedSampleIds([]);
     setCurrentAnalysis(null);
   };
-
-  const filteredBatches = selectedProjectId
-    ? batches.filter(b => b.projectId === selectedProjectId)
-    : batches;
 
   return (
     <div className="space-y-6 animate-fade-in">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-white mb-2">序列分析工作台</h1>
-          <p className="text-slate-400">配置比对工具、设置参数、运行分析流程</p>
+          <p className="text-slate-400">可视化编排分析流程 · 拖拽节点 · 连接数据流</p>
         </div>
         <div className="flex items-center gap-3">
           {currentAnalysis && (
@@ -221,10 +315,10 @@ export default function AnalysisWorkbench() {
       )}
 
       <div className="grid grid-cols-12 gap-6">
-        <div className="col-span-4 space-y-6">
+        <div className="col-span-3 space-y-6">
           <div className="card p-5">
             <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <FileText size={20} className="text-primary-400" />
+              <Layers size={20} className="text-primary-400" />
               基本信息
             </h2>
             <div className="space-y-4">
@@ -232,7 +326,7 @@ export default function AnalysisWorkbench() {
                 <label className="block text-sm text-slate-400 mb-2">分析名称 *</label>
                 <input
                   type="text"
-                  className="input-field"
+                  className="input-field text-sm py-2"
                   placeholder="输入分析名称"
                   value={analysisName}
                   onChange={(e) => setAnalysisName(e.target.value)}
@@ -241,7 +335,7 @@ export default function AnalysisWorkbench() {
               <div>
                 <label className="block text-sm text-slate-400 mb-2">分析描述</label>
                 <textarea
-                  className="input-field min-h-[80px] resize-none"
+                  className="input-field text-sm py-2 min-h-[60px] resize-none"
                   placeholder="输入分析描述"
                   value={analysisDescription}
                   onChange={(e) => setAnalysisDescription(e.target.value)}
@@ -250,7 +344,7 @@ export default function AnalysisWorkbench() {
               <div>
                 <label className="block text-sm text-slate-400 mb-2">所属项目 *</label>
                 <select
-                  className="select-field"
+                  className="select-field text-sm py-2"
                   value={selectedProjectId}
                   onChange={(e) => { setSelectedProjectId(e.target.value); setSelectedBatchId(''); }}
                 >
@@ -263,7 +357,7 @@ export default function AnalysisWorkbench() {
               <div>
                 <label className="block text-sm text-slate-400 mb-2">所属批次</label>
                 <select
-                  className="select-field"
+                  className="select-field text-sm py-2"
                   value={selectedBatchId}
                   onChange={(e) => setSelectedBatchId(e.target.value)}
                 >
@@ -274,63 +368,6 @@ export default function AnalysisWorkbench() {
                 </select>
               </div>
             </div>
-          </div>
-
-          <div className="card p-5">
-            <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-              <Workflow size={20} className="text-primary-400" />
-              分析步骤
-              <button
-                className="ml-auto p-1.5 rounded-lg bg-primary-600 hover:bg-primary-500 transition-colors"
-                onClick={() => { setEditorMode('select'); setSelectedStepId(null); }}
-              >
-                <Plus size={16} />
-              </button>
-            </h2>
-
-            {steps.length === 0 ? (
-              <div className="text-center py-8 border-2 border-dashed border-slate-700 rounded-xl">
-                <Workflow className="mx-auto text-slate-600 mb-3" size={32} />
-                <p className="text-slate-500 text-sm">点击上方 + 按钮添加分析步骤</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {steps.map((step, idx) => {
-                  const tool = ALIGNMENT_TOOLS.find(t => t.id === step.toolId);
-                  const isSelected = selectedStepId === step.id;
-                  return (
-                    <div key={step.id}>
-                      <div
-                        className={`p-3 rounded-xl cursor-pointer transition-all ${
-                          isSelected
-                            ? 'bg-primary-500/10 border border-primary-500/30'
-                            : 'bg-slate-800/50 border border-transparent hover:border-slate-700'
-                        }`}
-                        onClick={() => { setSelectedStepId(step.id); setEditorMode('configure'); }}
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-sm font-bold text-white">
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-medium text-white text-sm">{tool?.name}</p>
-                            <p className="text-xs text-slate-500">{tool?.description.slice(0, 30)}...</p>
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); removeStep(step.id); }}
-                            className="p-1.5 text-slate-500 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                          <ChevronRight size={16} className="text-slate-500" />
-                        </div>
-                      </div>
-                      {idx < steps.length - 1 && <div className="step-connector" />}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
 
           <div className="card p-5">
@@ -370,131 +407,46 @@ export default function AnalysisWorkbench() {
           </div>
         </div>
 
-        <div className="col-span-8 space-y-6">
-          <div className="card p-5">
-            {editorMode === 'select' && (
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-4">选择比对工具</h3>
-                <div className="grid grid-cols-2 gap-4">
-                  {ALIGNMENT_TOOLS.map((tool) => (
-                    <div
-                      key={tool.id}
-                      className="p-4 rounded-xl bg-slate-800/50 border border-slate-700 hover:border-primary-500/30 hover:bg-slate-800/80 cursor-pointer transition-all group"
-                      onClick={() => addStep(tool.id)}
-                    >
-                      <div className="flex items-start justify-between mb-3">
-                        <div>
-                          <h4 className="font-semibold text-white group-hover:text-primary-400 transition-colors">{tool.name}</h4>
-                          <span className="text-xs text-slate-500">v{tool.version}</span>
-                        </div>
-                        <span className="badge bg-primary-500/20 text-primary-400 text-xs">{tool.category}</span>
-                      </div>
-                      <p className="text-sm text-slate-400 mb-4">{tool.description}</p>
-                      <div className="flex items-center gap-2 text-xs text-slate-500">
-                        <Settings size={12} />
-                        <span>{tool.parameters.length} 个可配置参数</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+        <div className="col-span-6 space-y-6">
+          <div className="card p-4" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                <Workflow size={20} className="text-primary-400" />
+                分析流程画布
+              </h2>
+              <div className="flex items-center gap-2 text-xs text-slate-500">
+                <span className="px-2 py-1 bg-slate-800 rounded-lg">
+                  {toolNodes.length} 个工具
+                </span>
+                <span className="px-2 py-1 bg-slate-800 rounded-lg">
+                  {graph.edges.length} 条连线
+                </span>
               </div>
-            )}
+            </div>
+            <div className="h-[calc(100%-48px)]">
+              <DAGCanvas
+                graph={graph}
+                selectedNodeId={selectedNodeId}
+                onSelectNode={setSelectedNodeId}
+                onUpdateNode={handleUpdateNode}
+                onAddNode={handleAddNode}
+                onDeleteNode={handleDeleteNode}
+                onAddEdge={handleAddEdge}
+                onDeleteEdge={handleDeleteEdge}
+                onUpdateGraph={handleUpdateGraph}
+              />
+            </div>
+          </div>
+        </div>
 
-            {editorMode === 'configure' && selectedStep && selectedToolConfig && (
-              <div>
-                <div className="flex items-center justify-between mb-6">
-                  <div>
-                    <h3 className="text-lg font-semibold text-white">{selectedToolConfig.name} - 参数配置</h3>
-                    <p className="text-sm text-slate-400">{selectedToolConfig.description}</p>
-                  </div>
-                  <button
-                    className="btn-secondary text-sm flex items-center gap-2"
-                    onClick={() => setEditorMode('result')}
-                  >
-                    <Zap size={14} />
-                    预览结果
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 gap-6">
-                  {selectedToolConfig.parameters.map((param) => (
-                    <div key={param.name}>
-                      <label className="block text-sm text-slate-300 mb-2">
-                        {param.label}
-                        <span className="text-xs text-slate-500 ml-2">{param.description}</span>
-                      </label>
-                      {param.type === 'select' ? (
-                        <select
-                          className="select-field"
-                          value={String(selectedStep.parameters[param.name])}
-                          onChange={(e) => updateStepParameter(selectedStep.id, param.name, e.target.value)}
-                        >
-                          {param.options?.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                        </select>
-                      ) : param.type === 'boolean' ? (
-                        <label className="flex items-center gap-3 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={Boolean(selectedStep.parameters[param.name])}
-                            onChange={(e) => updateStepParameter(selectedStep.id, param.name, e.target.checked)}
-                            className="w-5 h-5 rounded border-slate-600 bg-slate-800 text-primary-500"
-                          />
-                          <span className="text-sm text-slate-400">
-                            {selectedStep.parameters[param.name] ? '已启用' : '已禁用'}
-                          </span>
-                        </label>
-                      ) : (
-                        <input
-                          type={param.type === 'number' ? 'number' : 'text'}
-                          className="input-field"
-                          value={String(selectedStep.parameters[param.name])}
-                          onChange={(e) => updateStepParameter(
-                            selectedStep.id,
-                            param.name,
-                            param.type === 'number' ? Number(e.target.value) : e.target.value
-                          )}
-                        />
-                      )}
-                    </div>
-                  ))}
-                </div>
-
-                <div className="mt-8 p-4 bg-slate-950/50 rounded-xl border border-slate-700">
-                  <h4 className="text-sm font-medium text-slate-300 mb-3 flex items-center gap-2">
-                    <Copy size={16} className="text-primary-400" />
-                    命令行预览
-                  </h4>
-                  <code className="font-mono text-sm text-slate-400">
-                    {selectedToolConfig.id} {Object.entries(selectedStep.parameters).map(([k, v]) =>
-                      typeof v === 'boolean' ? (v ? `--${k}` : '') : `--${k} ${v}`
-                    ).filter(Boolean).join(' ')}
-                  </code>
-                </div>
-              </div>
-            )}
-
-            {editorMode === 'result' && (
-              <div>
-                <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                  <FileText size={20} className="text-primary-400" />
-                  比对结果预览
-                </h3>
-                {alignmentResults.length > 0 ? (
-                  <div className="space-y-4 max-h-[600px] overflow-y-auto">
-                    {alignmentResults.slice(0, 5).map((result, idx) => (
-                      <AlignmentResultCard key={idx} result={result} />
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-center py-16 border-2 border-dashed border-slate-700 rounded-xl">
-                    <FileText className="mx-auto text-slate-600 mb-3" size={48} />
-                    <p className="text-slate-500">运行分析后将显示比对结果</p>
-                  </div>
-                )}
-              </div>
-            )}
+        <div className="col-span-3 space-y-6">
+          <div className="card p-0 overflow-hidden" style={{ height: 'calc(100vh - 220px)', minHeight: '500px' }}>
+            <NodePropertyPanel
+              node={selectedNode}
+              onUpdateNode={handleUpdateNode}
+              onDeleteNode={handleDeleteNode}
+              onClose={() => setSelectedNodeId(null)}
+            />
           </div>
 
           {currentAnalysis && (
@@ -503,10 +455,10 @@ export default function AnalysisWorkbench() {
                 <Clock size={20} className="text-primary-400" />
                 当前分析状态
               </h3>
-              <div className="flex items-center gap-6">
+              <div className="space-y-3">
                 <div>
                   <p className="text-sm text-slate-400 mb-1">分析名称</p>
-                  <p className="font-medium text-white">{currentAnalysis.name}</p>
+                  <p className="font-medium text-white text-sm truncate">{currentAnalysis.name}</p>
                 </div>
                 <div>
                   <p className="text-sm text-slate-400 mb-1">状态</p>
@@ -514,17 +466,23 @@ export default function AnalysisWorkbench() {
                 </div>
                 <div>
                   <p className="text-sm text-slate-400 mb-1">版本</p>
-                  <p className="font-medium text-white">v{currentAnalysis.version}</p>
+                  <p className="font-medium text-white text-sm">v{currentAnalysis.version}</p>
                 </div>
                 <div>
                   <p className="text-sm text-slate-400 mb-1">步骤进度</p>
-                  <p className="font-medium text-white">{currentAnalysis.currentStep}/{currentAnalysis.steps.length}</p>
+                  <p className="font-medium text-white text-sm">
+                    {currentAnalysis.currentStep}/{currentAnalysis.steps.length}
+                  </p>
                 </div>
-                <div className="flex-1">
+                <div>
                   <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-primary-500 to-primary-400 rounded-full transition-all duration-500"
-                      style={{ width: `${currentAnalysis.steps.length > 0 ? (currentAnalysis.currentStep / currentAnalysis.steps.length) * 100 : 0}%` }}
+                      style={{
+                        width: `${currentAnalysis.steps.length > 0
+                          ? (currentAnalysis.currentStep / currentAnalysis.steps.length) * 100
+                          : 0}%`,
+                      }}
                     />
                   </div>
                 </div>
@@ -532,6 +490,14 @@ export default function AnalysisWorkbench() {
             </div>
           )}
         </div>
+      </div>
+
+      <div className="card p-5">
+        <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <Sparkles size={20} className="text-primary-400" />
+          工具节点库
+        </h2>
+        <ToolPalette />
       </div>
     </div>
   );

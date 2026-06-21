@@ -494,3 +494,54 @@ export const DEFAULT_CPG_SCAN_PARAMETERS: CpgScanParameters = {
   minOeRatio: 0.6,
   initialMethylationRate: 0.3,
 };
+
+export type WorkflowNodeType = 'input' | 'tool' | 'branch' | 'merge' | 'output';
+
+export interface WorkflowNodePosition {
+  x: number;
+  y: number;
+}
+
+export interface WorkflowNodePort {
+  id: string;
+  label?: string;
+}
+
+export interface WorkflowNode {
+  id: string;
+  type: WorkflowNodeType;
+  label: string;
+  position: WorkflowNodePosition;
+  toolId?: AlignmentTool;
+  parameters?: Record<string, string | number | boolean>;
+  branchConditions?: string[];
+  inputPorts: WorkflowNodePort[];
+  outputPorts: WorkflowNodePort[];
+}
+
+export interface WorkflowEdge {
+  id: string;
+  source: string;
+  target: string;
+  sourcePort: string;
+  targetPort: string;
+  label?: string;
+}
+
+export interface WorkflowGraph {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+}
+
+export interface DragState {
+  isDragging: boolean;
+  nodeId: string | null;
+  offset: { x: number; y: number };
+}
+
+export interface ConnectionState {
+  isConnecting: boolean;
+  sourceNodeId: string | null;
+  sourcePortId: string | null;
+  mousePosition: { x: number; y: number };
+}
