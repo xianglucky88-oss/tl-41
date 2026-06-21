@@ -3,9 +3,10 @@ import cors from 'cors';
 import type {
   Project, Batch, Sample, AnalysisRecord, Variant,
   AlignmentResult, AnalysisReport, AlignmentTool,
-  ApiResponse, PaginatedResponse, PaginationParams
+  ApiResponse, PaginatedResponse, PaginationParams,
+  PrimerDesignResult, PrimerConstraints
 } from '../shared/types.js';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult } from '../shared/mockData.js';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics } from '../shared/mockData.js';
 import { ALIGNMENT_TOOLS } from '../shared/toolConfigs.js';
 
 const app = express();
@@ -454,6 +455,55 @@ app.get('/api/stats/overview', (req, res) => {
     },
   };
   res.json(successResponse(stats));
+});
+
+app.get('/api/primers/constraints', (req, res) => {
+  res.json(successResponse(DEFAULT_PRIMER_CONSTRAINTS));
+});
+
+app.post('/api/primers/metrics', (req, res) => {
+  const { sequence } = req.body;
+  if (!sequence) {
+    return res.status(400).json(errorResponse('请提供引物序列'));
+  }
+  const metrics = computePrimerMetrics(String(sequence).toUpperCase());
+  res.json(successResponse(metrics));
+});
+
+app.post('/api/primers/design', async (req, res) => {
+  const { sampleId, regionStart, regionEnd, constraints } = req.body;
+
+  if (!sampleId) {
+    return res.status(400).json(errorResponse('请提供样本ID'));
+  }
+  if (regionStart == null || regionEnd == null) {
+    return res.status(400).json(errorResponse('请提供序列区域范围'));
+  }
+
+  const sample = MOCK_SAMPLES.find((s: Sample) => s.id === sampleId);
+  if (!sample) {
+    return res.status(404).json(errorResponse('样本不存在'));
+  }
+
+  const start = Math.max(1, Number(regionStart));
+  const end = Math.min(sample.sequence.length, Number(regionEnd));
+  if (start >= end) {
+    return res.status(400).json(errorResponse('区域范围无效'));
+  }
+
+  try {
+    await new Promise(r => setTimeout(r, 600));
+    const result = designPrimers(
+      sample.sequence,
+      sampleId,
+      start,
+      end,
+      constraints as Partial<PrimerConstraints> | undefined
+    );
+    res.json(successResponse(result, '引物设计完成'));
+  } catch {
+    res.status(500).json(errorResponse('引物设计失败'));
+  }
 });
 
 app.listen(PORT, () => {

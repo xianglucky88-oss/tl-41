@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
 
@@ -1281,5 +1281,363 @@ export const digestSequence = (
     cutSites: uniqueCutSites,
     fragments,
     fragmentCount: fragments.length,
+  };
+};
+
+const NEAREST_NEIGHBOR_DH: Record<string, number> = {
+  AA: -7.9, AT: -7.2, AC: -8.4, AG: -7.8,
+  TA: -7.2, TT: -7.9, TC: -8.2, TG: -8.5,
+  CA: -8.5, CT: -7.8, CC: -8.0, CG: -10.6,
+  GA: -8.2, GT: -8.4, GC: -9.8, GG: -8.0,
+};
+
+const NEAREST_NEIGHBOR_DS: Record<string, number> = {
+  AA: -22.2, AT: -20.4, AC: -22.4, AG: -21.0,
+  TA: -21.3, TT: -22.2, TC: -22.2, TG: -22.7,
+  CA: -22.7, CT: -21.0, CC: -19.9, CG: -27.2,
+  GA: -22.2, GT: -22.4, GC: -24.4, GG: -19.9,
+};
+
+const computePrimerTm = (sequence: string): number => {
+  const seq = sequence.toUpperCase();
+  if (seq.length < 2) return 0;
+
+  let dH = 0;
+  let dS = 0;
+  for (let i = 0; i < seq.length - 1; i++) {
+    const dinuc = seq.slice(i, i + 2);
+    dH += NEAREST_NEIGHBOR_DH[dinuc] || -8;
+    dS += NEAREST_NEIGHBOR_DS[dinuc] || -21;
+  }
+
+  const dH_kcal = dH * 1000;
+  const saltCorrection = 16.6 * Math.log10(0.05);
+  const Tm = (dH_kcal / (dS + 1.987 * Math.log(1e-7))) - 273.15 + saltCorrection;
+
+  return Math.round(Tm * 10) / 10;
+};
+
+const computePrimerGc = (sequence: string): number => {
+  const seq = sequence.toUpperCase();
+  let gc = 0;
+  for (let i = 0; i < seq.length; i++) {
+    if (seq[i] === 'G' || seq[i] === 'C') gc++;
+  }
+  return seq.length > 0 ? Math.round((gc / seq.length) * 1000) / 10 : 0;
+};
+
+const findMaxHomopolymer = (sequence: string): number => {
+  const seq = sequence.toUpperCase();
+  if (seq.length === 0) return 0;
+  let maxLen = 1;
+  let currentLen = 1;
+  for (let i = 1; i < seq.length; i++) {
+    if (seq[i] === seq[i - 1]) {
+      currentLen++;
+      maxLen = Math.max(maxLen, currentLen);
+    } else {
+      currentLen = 1;
+    }
+  }
+  return maxLen;
+};
+
+const countMatches = (a: string, b: string): number => {
+  let count = 0;
+  const minLen = Math.min(a.length, b.length);
+  for (let i = 0; i < minLen; i++) {
+    const ba = a[i];
+    const bb = b[i];
+    if ((ba === 'A' && bb === 'T') || (ba === 'T' && bb === 'A') ||
+        (ba === 'G' && bb === 'C') || (ba === 'C' && bb === 'G')) {
+      count++;
+    }
+  }
+  return count;
+};
+
+const computeDimerDeltaG = (sequence: string): number => {
+  const seq = sequence.toUpperCase();
+  const rev = reverseComplement(seq);
+  let maxMatches = 0;
+
+  for (let offset = 1; offset < seq.length; offset++) {
+    const subA = seq.slice(offset);
+    const subB = rev.slice(0, seq.length - offset);
+    const matches = countMatches(subA, subB);
+    maxMatches = Math.max(maxMatches, matches);
+  }
+
+  const deltaG = -maxMatches * 1.8;
+  return Math.round(deltaG * 10) / 10;
+};
+
+const computeCrossDimerDeltaG = (seq1: string, seq2: string): number => {
+  const a = seq1.toUpperCase();
+  const b = reverseComplement(seq2.toUpperCase());
+  let maxMatches = 0;
+
+  for (let offset = -a.length + 1; offset < b.length; offset++) {
+    let matches = 0;
+    const startA = offset < 0 ? -offset : 0;
+    const startB = offset > 0 ? offset : 0;
+    const len = Math.min(a.length - startA, b.length - startB);
+    for (let i = 0; i < len; i++) {
+      const ba = a[startA + i];
+      const bb = b[startB + i];
+      if ((ba === 'A' && bb === 'T') || (ba === 'T' && bb === 'A') ||
+          (ba === 'G' && bb === 'C') || (ba === 'C' && bb === 'G')) {
+        matches++;
+      }
+    }
+    maxMatches = Math.max(maxMatches, matches);
+  }
+
+  const deltaG = -maxMatches * 1.5;
+  return Math.round(deltaG * 10) / 10;
+};
+
+const computeHairpinDeltaG = (sequence: string): number => {
+  const seq = sequence.toUpperCase();
+  let bestDeltaG = 0;
+
+  for (let loopSize = 3; loopSize <= 10; loopSize++) {
+    for (let stemStart = 0; stemStart + loopSize + 4 < seq.length; stemStart++) {
+      let stemBp = 0;
+      for (let i = 0; stemStart + i + loopSize + 2 < seq.length; i++) {
+        const left = seq[stemStart + i];
+        const right = seq[seq.length - 1 - i];
+        if ((left === 'A' && right === 'T') || (left === 'T' && right === 'A') ||
+            (left === 'G' && right === 'C') || (left === 'C' && right === 'G')) {
+          stemBp++;
+        } else {
+          break;
+        }
+        if (stemBp >= 4) break;
+      }
+      if (stemBp >= 3) {
+        const deltaG = -stemBp * 1.2;
+        bestDeltaG = Math.min(bestDeltaG, deltaG);
+      }
+    }
+  }
+
+  return Math.round(bestDeltaG * 10) / 10;
+};
+
+const computeComplexity = (sequence: string): number => {
+  const seq = sequence.toUpperCase();
+  const observed = new Set<string>();
+  for (let i = 0; i + 2 < seq.length; i++) {
+    observed.add(seq.slice(i, i + 3));
+  }
+  const maxPossible = Math.min(64, seq.length - 2);
+  return maxPossible > 0 ? Math.round((observed.size / maxPossible) * 100) / 100 : 0;
+};
+
+const checkGcClamp = (sequence: string, clampCount: number): boolean => {
+  const seq = sequence.toUpperCase();
+  if (clampCount <= 0) return true;
+  const tail = seq.slice(-clampCount);
+  let gcCount = 0;
+  for (let i = 0; i < tail.length; i++) {
+    if (tail[i] === 'G' || tail[i] === 'C') gcCount++;
+  }
+  return gcCount >= clampCount;
+};
+
+export const computePrimerMetrics = (sequence: string): PrimerMetrics => {
+  return {
+    length: sequence.length,
+    gcPercent: computePrimerGc(sequence),
+    tm: computePrimerTm(sequence),
+    homopolymerMax: findMaxHomopolymer(sequence),
+    dimerDeltaG: computeDimerDeltaG(sequence),
+    hairpinDeltaG: computeHairpinDeltaG(sequence),
+    hasGcClamp: checkGcClamp(sequence, 2),
+    startsWithAT: sequence.toUpperCase()[0] === 'A' || sequence.toUpperCase()[0] === 'T',
+    complexityScore: computeComplexity(sequence),
+  };
+};
+
+const validatePrimer = (metrics: PrimerMetrics, constraints: PrimerConstraints): string[] => {
+  const warnings: string[] = [];
+
+  if (metrics.length < constraints.minLength) warnings.push(`长度 ${metrics.length}bp 低于最小 ${constraints.minLength}bp`);
+  if (metrics.length > constraints.maxLength) warnings.push(`长度 ${metrics.length}bp 超过最大 ${constraints.maxLength}bp`);
+  if (metrics.tm < constraints.minTm) warnings.push(`Tm ${metrics.tm.toFixed(1)}°C 低于 ${constraints.minTm}°C`);
+  if (metrics.tm > constraints.maxTm) warnings.push(`Tm ${metrics.tm.toFixed(1)}°C 超过 ${constraints.maxTm}°C`);
+  if (metrics.gcPercent < constraints.minGc) warnings.push(`GC% ${metrics.gcPercent.toFixed(1)}% 低于 ${constraints.minGc}%`);
+  if (metrics.gcPercent > constraints.maxGc) warnings.push(`GC% ${metrics.gcPercent.toFixed(1)}% 超过 ${constraints.maxGc}%`);
+  if (metrics.dimerDeltaG < constraints.maxDimerDeltaG) warnings.push(`二聚体 ΔG ${metrics.dimerDeltaG.toFixed(1)} kcal/mol 过低`);
+  if (metrics.hairpinDeltaG < constraints.maxHairpinDeltaG) warnings.push(`发夹 ΔG ${metrics.hairpinDeltaG.toFixed(1)} kcal/mol 过低`);
+  if (metrics.homopolymerMax > constraints.maxHomopolymer) warnings.push(`同源聚合 ${metrics.homopolymerMax}bp 超过 ${constraints.maxHomopolymer}bp`);
+  if (constraints.avoid5PrimeAT && metrics.startsWithAT) warnings.push('5\' 端以 A/T 起始');
+  if (constraints.gcClamp3Prime > 0 && !metrics.hasGcClamp) warnings.push(`3\' 端缺少 ${constraints.gcClamp3Prime}bp GC 夹`);
+
+  return warnings;
+};
+
+const generateCandidatePrimers = (
+  sequence: string,
+  startRegion: number,
+  endRegion: number,
+  direction: 'forward' | 'reverse',
+  constraints: PrimerConstraints
+): { primers: Primer[]; totalChecked: number } => {
+  const primers: Primer[] = [];
+  let totalChecked = 0;
+
+  for (let len = constraints.minLength; len <= constraints.maxLength; len++) {
+    for (let start = startRegion; start + len <= endRegion; start++) {
+      totalChecked++;
+      let seq = sequence.slice(start, start + len);
+
+      if (direction === 'reverse') {
+        seq = reverseComplement(seq);
+      }
+
+      const metrics = computePrimerMetrics(seq);
+      const warnings = validatePrimer(metrics, constraints);
+
+      primers.push({
+        id: `primer_${direction}_${start + 1}_${len}`,
+        sequence: seq,
+        direction,
+        start: direction === 'forward' ? start + 1 : start + 1,
+        end: direction === 'forward' ? start + len : start + len,
+        strand: direction === 'forward' ? '+' : '-',
+        metrics,
+      });
+    }
+  }
+
+  return { primers, totalChecked };
+};
+
+export const DEFAULT_PRIMER_CONSTRAINTS: PrimerConstraints = {
+  minLength: 18,
+  maxLength: 25,
+  minTm: 55,
+  maxTm: 65,
+  minGc: 40,
+  maxGc: 60,
+  maxDimerDeltaG: -6,
+  maxHairpinDeltaG: -6,
+  maxHomopolymer: 4,
+  productMinSize: 100,
+  productMaxSize: 500,
+  tmDifference: 3,
+  avoid5PrimeAT: true,
+  gcClamp3Prime: 2,
+};
+
+export const designPrimers = (
+  sequence: string,
+  sequenceId: string,
+  regionStart: number,
+  regionEnd: number,
+  customConstraints?: Partial<PrimerConstraints>
+): PrimerDesignResult => {
+  const seq = sequence.toUpperCase().replace(/[^ATGC]/g, '');
+  const constraints: PrimerConstraints = { ...DEFAULT_PRIMER_CONSTRAINTS, ...(customConstraints || {}) };
+
+  const startIdx = Math.max(0, regionStart - 1);
+  const endIdx = Math.min(seq.length, regionEnd);
+  const regionLen = endIdx - startIdx;
+
+  const fwdSearchStart = startIdx;
+  const fwdSearchEnd = Math.min(startIdx + Math.floor(regionLen * 0.3), endIdx);
+  const revSearchStart = Math.max(startIdx + Math.floor(regionLen * 0.7), fwdSearchEnd + constraints.productMinSize);
+  const revSearchEnd = endIdx;
+
+  const { primers: fwdAll, totalChecked: totalFwd } = generateCandidatePrimers(
+    seq, fwdSearchStart, fwdSearchEnd, 'forward', constraints
+  );
+  const { primers: revAll, totalChecked: totalRev } = generateCandidatePrimers(
+    seq, revSearchStart, revSearchEnd, 'reverse', constraints
+  );
+
+  const forwardCandidates = fwdAll
+    .filter(p => validatePrimer(p.metrics, constraints).length <= 1)
+    .sort((a, b) => {
+      const tmDiffA = Math.abs(a.metrics.tm - (constraints.minTm + constraints.maxTm) / 2);
+      const tmDiffB = Math.abs(b.metrics.tm - (constraints.minTm + constraints.maxTm) / 2);
+      return tmDiffA - tmDiffB;
+    })
+    .slice(0, 30);
+
+  const reverseCandidates = revAll
+    .filter(p => validatePrimer(p.metrics, constraints).length <= 1)
+    .sort((a, b) => {
+      const tmDiffA = Math.abs(a.metrics.tm - (constraints.minTm + constraints.maxTm) / 2);
+      const tmDiffB = Math.abs(b.metrics.tm - (constraints.minTm + constraints.maxTm) / 2);
+      return tmDiffA - tmDiffB;
+    })
+    .slice(0, 30);
+
+  const pairs: PrimerPair[] = [];
+  let totalPairsEvaluated = 0;
+
+  for (const fwd of forwardCandidates) {
+    for (const rev of reverseCandidates) {
+      totalPairsEvaluated++;
+
+      const productSize = rev.end - fwd.start + 1;
+      if (productSize < constraints.productMinSize || productSize > constraints.productMaxSize) continue;
+
+      const tmDiff = Math.abs(fwd.metrics.tm - rev.metrics.tm);
+      if (tmDiff > constraints.tmDifference) continue;
+
+      const crossDimer = computeCrossDimerDeltaG(fwd.sequence, rev.sequence);
+      if (crossDimer < constraints.maxDimerDeltaG) continue;
+
+      const fwdWarnings = validatePrimer(fwd.metrics, constraints);
+      const revWarnings = validatePrimer(rev.metrics, constraints);
+      const pairWarnings: string[] = [];
+
+      if (tmDiff > 1) pairWarnings.push(`引物 Tm 差异 ${tmDiff.toFixed(1)}°C`);
+      if (crossDimer < -4) pairWarnings.push(`交叉二聚体 ΔG ${crossDimer.toFixed(1)} kcal/mol`);
+      pairWarnings.push(...fwdWarnings.map(w => `F: ${w}`));
+      pairWarnings.push(...revWarnings.map(w => `R: ${w}`));
+
+      const penaltyScore =
+        Math.abs(fwd.metrics.tm - 60) * 2 +
+        Math.abs(rev.metrics.tm - 60) * 2 +
+        Math.abs(fwd.metrics.gcPercent - 50) +
+        Math.abs(rev.metrics.gcPercent - 50) +
+        Math.abs(productSize - 250) * 0.02 +
+        tmDiff * 3 +
+        Math.abs(crossDimer) * 2 +
+        pairWarnings.length * 5;
+
+      pairs.push({
+        id: `pair_${fwd.id}_${rev.id}`,
+        forward: fwd,
+        reverse: rev,
+        productSize,
+        productTm: (fwd.metrics.tm + rev.metrics.tm) / 2,
+        tmDifference: Math.round(tmDiff * 10) / 10,
+        penaltyScore: Math.round(penaltyScore * 100) / 100,
+        passesConstraints: pairWarnings.length === 0,
+        warnings: pairWarnings,
+      });
+    }
+  }
+
+  pairs.sort((a, b) => a.penaltyScore - b.penaltyScore);
+
+  return {
+    sequenceId,
+    sequenceLength: seq.length,
+    selectedRegionStart: regionStart,
+    selectedRegionEnd: regionEnd,
+    constraints,
+    forwardCandidates,
+    reverseCandidates,
+    pairs: pairs.slice(0, 20),
+    totalForwardChecked: totalFwd,
+    totalReverseChecked: totalRev,
+    totalPairsEvaluated,
   };
 };

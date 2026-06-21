@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FlaskConical, TestTube, Workflow, BarChart3, History, GitCompare, FileText, Search, Bell, User, Dna, BookOpen, Scissors } from 'lucide-react';
+  LayoutDashboard, FlaskConical, TestTube, Workflow, BarChart3, History, GitCompare, FileText, Search, Bell, User, Dna, BookOpen, Scissors, Sparkles } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface LayoutProps {
@@ -16,6 +16,7 @@ const navItems = [
   { path: '/gc-codon', label: 'GC/密码子分析', icon: Dna },
   { path: '/orf-predictor', label: 'ORF预测', icon: BookOpen },
   { path: '/restriction-enzyme', label: '限制酶酶切', icon: Scissors },
+  { path: '/primer-design', label: 'PCR引物设计', icon: Sparkles },
   { path: '/history', label: '分析历史', icon: History },
   { path: '/variants', label: '变异比对', icon: GitCompare },
   { path: '/reports', label: '报告中心', icon: FileText },

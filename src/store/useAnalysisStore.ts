@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult } from '@shared/types';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES } from '@shared/mockData';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics } from '@shared/types';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
 interface AnalysisState {
@@ -21,6 +21,8 @@ interface AnalysisState {
   codonPreferenceResult: CodonPreferenceResult | null;
   orfPredictionResult: OrfPredictionResult | null;
   digestionResult: DigestionResult | null;
+  primerDesignResult: PrimerDesignResult | null;
+  primerConstraints: PrimerConstraints;
   restrictionEnzymes: typeof RESTRICTION_ENZYMES;
   selectedSampleIds: string[];
   selectedVariantIds: string[];
@@ -71,6 +73,10 @@ interface AnalysisActions {
   analyzeCodonPreference: (sampleId: string) => Promise<void>;
   predictOrf: (sampleId: string, minOrfLength: number) => Promise<void>;
   analyzeRestrictionEnzyme: (sampleId: string, enzymeNames: string[]) => Promise<void>;
+  designPcrPrimers: (sampleId: string, regionStart: number, regionEnd: number, constraints?: Partial<PrimerConstraints>) => Promise<void>;
+  setPrimerConstraints: (constraints: Partial<PrimerConstraints>) => void;
+  computePrimerMetrics: (sequence: string) => PrimerMetrics;
+  clearPrimerResults: () => void;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -124,6 +130,8 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   codonPreferenceResult: null,
   orfPredictionResult: null,
   digestionResult: null,
+  primerDesignResult: null,
+  primerConstraints: { ...DEFAULT_PRIMER_CONSTRAINTS },
   restrictionEnzymes: RESTRICTION_ENZYMES,
   selectedSampleIds: [],
   selectedVariantIds: [],
@@ -759,5 +767,42 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
     } catch {
       set({ error: '限制酶酶切分析失败', loading: false });
     }
+  },
+
+  designPcrPrimers: async (sampleId, regionStart, regionEnd, constraints) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(500);
+      const sample = get().samples.find(s => s.id === sampleId);
+      if (!sample) {
+        set({ error: '样本不存在', loading: false });
+        return;
+      }
+      const mergedConstraints = { ...get().primerConstraints, ...(constraints || {}) };
+      const result = designPrimers(
+        sample.sequence,
+        sampleId,
+        regionStart,
+        regionEnd,
+        mergedConstraints
+      );
+      set({ primerDesignResult: result, loading: false });
+    } catch {
+      set({ error: '引物设计失败', loading: false });
+    }
+  },
+
+  setPrimerConstraints: (constraints) => {
+    set(state => ({
+      primerConstraints: { ...state.primerConstraints, ...constraints },
+    }));
+  },
+
+  computePrimerMetrics: (sequence) => {
+    return computePrimerMetrics(sequence);
+  },
+
+  clearPrimerResults: () => {
+    set({ primerDesignResult: null });
   },
 }));

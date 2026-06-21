@@ -369,3 +369,68 @@ export interface CodonPreferenceResult {
   positionFrequencies: CodonPositionBaseFrequency[];
   rscuTable: RscuEntry[];
 }
+
+export interface PrimerConstraints {
+  minLength: number;
+  maxLength: number;
+  minTm: number;
+  maxTm: number;
+  minGc: number;
+  maxGc: number;
+  maxDimerDeltaG: number;
+  maxHairpinDeltaG: number;
+  maxHomopolymer: number;
+  productMinSize: number;
+  productMaxSize: number;
+  tmDifference: number;
+  avoid5PrimeAT: boolean;
+  gcClamp3Prime: number;
+}
+
+export interface PrimerMetrics {
+  length: number;
+  gcPercent: number;
+  tm: number;
+  homopolymerMax: number;
+  dimerDeltaG: number;
+  hairpinDeltaG: number;
+  hasGcClamp: boolean;
+  startsWithAT: boolean;
+  complexityScore: number;
+}
+
+export interface Primer {
+  id: string;
+  sequence: string;
+  direction: 'forward' | 'reverse';
+  start: number;
+  end: number;
+  strand: '+' | '-';
+  metrics: PrimerMetrics;
+}
+
+export interface PrimerPair {
+  id: string;
+  forward: Primer;
+  reverse: Primer;
+  productSize: number;
+  productTm: number;
+  tmDifference: number;
+  penaltyScore: number;
+  passesConstraints: boolean;
+  warnings: string[];
+}
+
+export interface PrimerDesignResult {
+  sequenceId: string;
+  sequenceLength: number;
+  selectedRegionStart: number;
+  selectedRegionEnd: number;
+  constraints: PrimerConstraints;
+  forwardCandidates: Primer[];
+  reverseCandidates: Primer[];
+  pairs: PrimerPair[];
+  totalForwardChecked: number;
+  totalReverseChecked: number;
+  totalPairsEvaluated: number;
+}
