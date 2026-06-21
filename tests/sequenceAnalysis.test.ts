@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeGcSlidingWindow, computeCodonPreference } from '../shared/mockData.js';
+import { computeGcSlidingWindow, computeCodonPreference, designPrimers, DEFAULT_PRIMER_CONSTRAINTS } from '../shared/mockData.js';
 
 test('computeGcSlidingWindow: 空序列返回空数据点且整体GC为0', () => {
   const result = computeGcSlidingWindow('', 'empty', 100, 10);
@@ -149,4 +149,38 @@ test('computeCodonPreference: position 字段类型为 1|2|3', () => {
     result.positionFrequencies.map(f => f.position).sort(),
     [1, 2, 3]
   );
+});
+
+test('designPrimers: 500bp 区域应能生成多个候选引物对', () => {
+  const bases = ['A', 'T', 'G', 'C'];
+  let seq = '';
+  for (let i = 0; i < 500; i++) seq += bases[Math.floor(i % 4)];
+  const result = designPrimers(seq, 'test_500', 1, 500, DEFAULT_PRIMER_CONSTRAINTS);
+  assert.ok(result.totalForwardChecked > 0, '应检查过正向引物');
+  assert.ok(result.totalReverseChecked > 0, '应检查过反向引物');
+  assert.ok(result.forwardCandidates.length > 0, '应有正向候选引物');
+  assert.ok(result.reverseCandidates.length > 0, '应有反向候选引物');
+  assert.ok(result.pairs.length > 0, '应生成引物对');
+  assert.ok(result.pairs.length <= 20, '最多返回20对');
+  for (const pair of result.pairs) {
+    assert.ok(pair.productSize >= DEFAULT_PRIMER_CONSTRAINTS.productMinSize, `产物大小 ${pair.productSize} 不应小于最小值`);
+    assert.ok(pair.productSize <= DEFAULT_PRIMER_CONSTRAINTS.productMaxSize, `产物大小 ${pair.productSize} 不应大于最大值`);
+  }
+});
+
+test('designPrimers: 短区域（150bp）可能候选少但不应报错', () => {
+  const bases = ['A', 'T', 'G', 'C'];
+  let seq = '';
+  for (let i = 0; i < 200; i++) seq += bases[Math.floor(i % 4)];
+  const result = designPrimers(seq, 'short_region', 1, 150, DEFAULT_PRIMER_CONSTRAINTS);
+  assert.ok(result.totalForwardChecked > 0);
+  assert.ok(result.totalReverseChecked >= 0);
+});
+
+test('designPrimers: 极短区域（50bp）应返回空结果但不崩溃', () => {
+  const seq = 'ATGC'.repeat(13);
+  const result = designPrimers(seq, 'very_short', 1, 50, DEFAULT_PRIMER_CONSTRAINTS);
+  assert.equal(result.forwardCandidates.length, 0);
+  assert.equal(result.reverseCandidates.length, 0);
+  assert.equal(result.pairs.length, 0);
 });
