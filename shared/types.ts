@@ -561,3 +561,88 @@ export interface ConnectionState {
   sourcePortId: string | null;
   mousePosition: { x: number; y: number };
 }
+
+export type TemplateCategory = 
+  | 'variant_calling'
+  | 'alignment'
+  | 'assembly'
+  | 'annotation'
+  | 'rna_seq'
+  | 'chip_seq'
+  | 'methylation'
+  | 'metagenomics'
+  | 'single_cell'
+  | 'custom';
+
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  category: TemplateCategory;
+  tags: string[];
+  isBuiltIn: boolean;
+  isPublic: boolean;
+  author: string;
+  authorId: string;
+  createdAt: string;
+  updatedAt: string;
+  usageCount: number;
+  favoriteCount: number;
+  shareCount: number;
+  graph: WorkflowGraph;
+  parameters: Record<string, string | number | boolean>;
+  estimatedRuntime: string;
+  difficulty: 'beginner' | 'intermediate' | 'advanced';
+  version: string;
+  requirements: {
+    minRAM: string;
+    minCores: number;
+    referenceGenome?: string;
+  };
+}
+
+export interface UserFavorite {
+  id: string;
+  templateId: string;
+  userId: string;
+  createdAt: string;
+}
+
+export interface ShareLink {
+  id: string;
+  templateId: string;
+  shareCode: string;
+  createdBy: string;
+  createdAt: string;
+  expiresAt?: string;
+  accessCount: number;
+  isActive: boolean;
+  permissions: 'view' | 'view_copy';
+}
+
+export interface ShareTemplatePayload {
+  templateId: string;
+  permissions: 'view' | 'view_copy';
+  expiresInDays?: number;
+}
+
+export interface TemplateUsageStats {
+  templateId: string;
+  totalRuns: number;
+  successRate: number;
+  avgRuntime: number;
+  lastUsed: string;
+}
+
+export const TEMPLATE_CATEGORY_LABELS: Record<TemplateCategory, string> = {
+  variant_calling: '变异检测',
+  alignment: '序列比对',
+  assembly: '基因组组装',
+  annotation: '基因注释',
+  rna_seq: '转录组分析',
+  chip_seq: 'ChIP-seq分析',
+  methylation: '甲基化分析',
+  metagenomics: '宏基因组',
+  single_cell: '单细胞分析',
+  custom: '自定义模板',
+};

@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
-  Workflow, Play, Save, RotateCcw, GitBranch, Clock, FileText, History, Sparkles, Layers
+  Workflow, Play, Save, RotateCcw, GitBranch, Clock, FileText, History, Sparkles, Layers,
+  LayoutTemplate, X, Heart, Star, Clock as ClockIcon, Cpu, HardDrive, ChevronRight, Search
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import StatusBadge from '@/components/StatusBadge';
@@ -8,8 +9,9 @@ import DAGCanvas from '@/components/DAGCanvas/DAGCanvas';
 import ToolPalette from '@/components/DAGCanvas/ToolPalette';
 import NodePropertyPanel from '@/components/DAGCanvas/NodePropertyPanel';
 import { createNode } from '@/components/DAGCanvas/DAGCanvas';
-import type { WorkflowGraph, WorkflowNode, WorkflowEdge, AlignmentTool, AnalysisStep, AnalysisRecord, AlignmentResult } from '@shared/types';
+import type { WorkflowGraph, WorkflowNode, WorkflowEdge, AlignmentTool, AnalysisStep, AnalysisRecord, AlignmentResult, WorkflowTemplate } from '@shared/types';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
+import { TEMPLATE_CATEGORY_LABELS } from '@shared/types';
 
 function createInitialGraph(): WorkflowGraph {
   const inputNode = createNode('input', { x: 60, y: 200 });
@@ -80,10 +82,13 @@ function topologicalSort(graph: WorkflowGraph): WorkflowNode[] {
 export default function AnalysisWorkbench() {
   const {
     samples, projects, batches, analyses, alignmentResults,
+    templates, popularTemplates, favoriteTemplates,
     selectedSampleIds, setSelectedSampleIds,
     currentAnalysis, setCurrentAnalysis,
     createAnalysis, updateAnalysis, runAlignment, completeAnalysis,
-    saveAnalysisTemplate, loading, error
+    saveAnalysisTemplate, loading, error,
+    fetchTemplates, fetchPopularTemplates, fetchFavorites,
+    useTemplate, toggleFavorite,
   } = useAnalysisStore();
 
   const [analysisName, setAnalysisName] = useState('');
@@ -94,6 +99,17 @@ export default function AnalysisWorkbench() {
   const [graph, setGraph] = useState<WorkflowGraph>(createInitialGraph());
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
+
+  const [showTemplateModal, setShowTemplateModal] = useState(false);
+  const [templateTab, setTemplateTab] = useState<'popular' | 'all' | 'favorites'>('popular');
+  const [templateSearch, setTemplateSearch] = useState('');
+  const [selectedTemplateCategory, setSelectedTemplateCategory] = useState<string>('all');
+
+  useEffect(() => {
+    fetchTemplates();
+    fetchPopularTemplates();
+    fetchFavorites();
+  }, []);
 
   const availableSamples = selectedBatchId
     ? samples.filter(s => s.batchId === selectedBatchId)
@@ -256,6 +272,40 @@ export default function AnalysisWorkbench() {
     }
   };
 
+  const filteredTemplates = useMemo(() => {
+    let source = templateTab === 'popular' ? popularTemplates :
+                 templateTab === 'favorites' ? favoriteTemplates : templates;
+
+    if (templateSearch) {
+      const query = templateSearch.toLowerCase();
+      source = source.filter(t =>
+        t.name.toLowerCase().includes(query) ||
+        t.description.toLowerCase().includes(query) ||
+        t.tags.some(tag => tag.toLowerCase().includes(query))
+      );
+    }
+
+    if (selectedTemplateCategory !== 'all') {
+      source = source.filter(t => t.category === selectedTemplateCategory);
+    }
+
+    return source;
+  }, [templates, popularTemplates, favoriteTemplates, templateTab, templateSearch, selectedTemplateCategory]);
+
+  const favoriteIds = useMemo(() =>
+    favoriteTemplates.map(t => t.id),
+    [favoriteTemplates]
+  );
+
+  const handleUseTemplate = async (template: WorkflowTemplate) => {
+    const result = await useTemplate(template.id);
+    if (result) {
+      setGraph(result.graph);
+      setAnalysisName(result.name);
+      setShowTemplateModal(false);
+    }
+  };
+
   const resetForm = () => {
     setAnalysisName('');
     setAnalysisDescription('');
@@ -287,6 +337,10 @@ export default function AnalysisWorkbench() {
           <button className="btn-secondary flex items-center gap-2" onClick={resetForm}>
             <RotateCcw size={16} />
             重置
+          </button>
+          <button className="btn-secondary flex items-center gap-2" onClick={() => setShowTemplateModal(true)}>
+            <LayoutTemplate size={16} />
+            从模板导入
           </button>
           <button className="btn-secondary flex items-center gap-2" onClick={saveAsTemplate}>
             <Save size={16} />
@@ -499,6 +553,180 @@ export default function AnalysisWorkbench() {
         </h2>
         <ToolPalette />
       </div>
+
+      {showTemplateModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+            <div className="p-5 border-b border-slate-700 flex items-center justify-between">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <LayoutTemplate size={24} className="text-primary-400" />
+                  选择分析流程模板
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">选择一个模板快速开始您的分析工作流</p>
+              </div>
+              <button
+                className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+                onClick={() => setShowTemplateModal(false)}
+              >
+                <X size={20} className="text-slate-400" />
+              </button>
+            </div>
+
+            <div className="p-5 border-b border-slate-700">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-1 bg-slate-700/50 rounded-xl p-1">
+                  {[
+                    { id: 'popular', label: '热门推荐', icon: Star },
+                    { id: 'all', label: '全部模板', icon: LayoutTemplate },
+                    { id: 'favorites', label: '我的收藏', icon: Heart },
+                  ].map((tab) => (
+                    <button
+                      key={tab.id}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all flex items-center gap-2 ${
+                        templateTab === tab.id
+                          ? 'bg-primary-500 text-white'
+                          : 'text-slate-400 hover:text-white hover:bg-slate-700'
+                      }`}
+                      onClick={() => setTemplateTab(tab.id as typeof templateTab)}
+                    >
+                      <tab.icon size={16} />
+                      {tab.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  <div className="relative">
+                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      type="text"
+                      placeholder="搜索模板..."
+                      value={templateSearch}
+                      onChange={(e) => setTemplateSearch(e.target.value)}
+                      className="w-64 bg-slate-700/50 border border-slate-600 rounded-xl pl-9 pr-4 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-primary-500"
+                    />
+                  </div>
+                  <select
+                    value={selectedTemplateCategory}
+                    onChange={(e) => setSelectedTemplateCategory(e.target.value)}
+                    className="bg-slate-700/50 border border-slate-600 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-primary-500"
+                  >
+                    <option value="all">全部分类</option>
+                    {Object.entries(TEMPLATE_CATEGORY_LABELS).map(([key, label]) => (
+                      <option key={key} value={key}>{label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-5">
+              {filteredTemplates.length === 0 ? (
+                <div className="text-center py-16">
+                  <LayoutTemplate size={48} className="mx-auto text-slate-600 mb-4" />
+                  <p className="text-slate-400 mb-1">没有找到匹配的模板</p>
+                  <p className="text-sm text-slate-500">尝试调整搜索条件或筛选分类</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-4">
+                  {filteredTemplates.map((template) => {
+                    const isFavorited = favoriteIds.includes(template.id);
+                    const toolNodes = template.graph.nodes.filter(n => n.type === 'tool');
+                    return (
+                      <div
+                        key={template.id}
+                        className="p-5 rounded-xl bg-slate-700/30 border border-slate-600 hover:border-primary-500/50 transition-all cursor-pointer group"
+                      >
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-2 mb-2">
+                              <span className="text-xs px-2 py-0.5 bg-primary-500/20 text-primary-400 rounded-full">
+                                {TEMPLATE_CATEGORY_LABELS[template.category as keyof typeof TEMPLATE_CATEGORY_LABELS] || template.category}
+                              </span>
+                              {template.isBuiltIn && (
+                                <span className="text-xs px-2 py-0.5 bg-emerald-500/20 text-emerald-400 rounded-full">
+                                  官方
+                                </span>
+                              )}
+                              {isFavorited && (
+                                <Heart size={14} className="text-rose-400" fill="currentColor" />
+                              )}
+                            </div>
+                            <h3 className="text-lg font-semibold text-white group-hover:text-primary-400 transition-colors">
+                              {template.name}
+                            </h3>
+                          </div>
+                          <button
+                            className={`p-2 rounded-lg transition-colors ${
+                              isFavorited
+                                ? 'bg-rose-500/20 text-rose-400'
+                                : 'bg-slate-700/50 text-slate-400 hover:text-white'
+                            }`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleFavorite(template.id);
+                            }}
+                          >
+                            <Heart size={16} fill={isFavorited ? 'currentColor' : 'none'} />
+                          </button>
+                        </div>
+
+                        <p className="text-sm text-slate-400 mb-4 line-clamp-2">
+                          {template.description}
+                        </p>
+
+                        <div className="flex items-center gap-4 mb-4 text-xs text-slate-500">
+                          <span className="flex items-center gap-1">
+                            <ClockIcon size={12} />
+                            {template.estimatedRuntime}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Cpu size={12} />
+                            {template.requirements.minCores}核
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <HardDrive size={12} />
+                            {template.requirements.minRAM}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <ChevronRight size={12} />
+                            {toolNodes.length} 步骤
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-2 mb-4">
+                          {template.tags.slice(0, 3).map((tag) => (
+                            <span
+                              key={tag}
+                              className="text-xs px-2 py-0.5 bg-slate-700/50 text-slate-400 rounded-full"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                          {template.tags.length > 3 && (
+                            <span className="text-xs px-2 py-0.5 bg-slate-700/50 text-slate-400 rounded-full">
+                              +{template.tags.length - 3}
+                            </span>
+                          )}
+                        </div>
+
+                        <button
+                          className="w-full btn-primary text-sm flex items-center justify-center gap-2"
+                          onClick={() => handleUseTemplate(template)}
+                        >
+                          <ChevronRight size={16} />
+                          使用此模板
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -13,6 +13,7 @@ import OrfPredictor from './pages/OrfPredictor';
 import RestrictionEnzymeAnalyzer from './pages/RestrictionEnzymeAnalyzer';
 import PcrPrimerDesigner from './pages/PcrPrimerDesigner';
 import CpgIslandScanner from './pages/CpgIslandScanner';
+import WorkflowTemplates from './pages/WorkflowTemplates';
 
 export default function App() {
   return (
@@ -22,6 +23,9 @@ export default function App() {
         <Route path="/projects" element={<Projects />} />
         <Route path="/samples" element={<Samples />} />
         <Route path="/workbench" element={<AnalysisWorkbench />} />
+        <Route path="/analysis/workbench" element={<AnalysisWorkbench />} />
+        <Route path="/templates" element={<WorkflowTemplates />} />
+        <Route path="/analysis/templates" element={<WorkflowTemplates />} />
         <Route path="/visualizer" element={<AlignmentVisualizer />} />
         <Route path="/gc-codon" element={<GcCodonAnalyzer />} />
         <Route path="/orf-predictor" element={<OrfPredictor />} />

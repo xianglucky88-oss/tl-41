@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FlaskConical, TestTube, Workflow, BarChart3, History, GitCompare, FileText, Search, Bell, User, Dna, BookOpen, Scissors, Sparkles, Hexagon } from 'lucide-react';
+  LayoutDashboard, FlaskConical, TestTube, Workflow, BarChart3, History, GitCompare, FileText, Search, Bell, User, Dna, BookOpen, Scissors, Sparkles, Hexagon, LayoutTemplate } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface LayoutProps {
@@ -11,6 +11,7 @@ const navItems = [
   { path: '/', label: '仪表盘', icon: LayoutDashboard },
   { path: '/projects', label: '项目管理', icon: FlaskConical },
   { path: '/samples', label: '样本管理', icon: TestTube },
+  { path: '/templates', label: '流程模板', icon: LayoutTemplate },
   { path: '/workbench', label: '分析工作台', icon: Workflow },
   { path: '/visualizer', label: '比对可视化', icon: BarChart3 },
   { path: '/gc-codon', label: 'GC/密码子分析', icon: Dna },
@@ -44,7 +45,9 @@ export default function Layout({ children }: LayoutProps) {
         <nav className="flex-1 p-4 space-y-1">
           {navItems.map((item) => {
             const Icon = item.icon;
-            const isActive = location.pathname === item.path;
+            const isActive = location.pathname === item.path || 
+                           (item.path === '/workbench' && location.pathname === '/analysis/workbench') ||
+                           (item.path === '/templates' && location.pathname === '/analysis/templates');
             return (
               <NavLink
                 key={item.path}

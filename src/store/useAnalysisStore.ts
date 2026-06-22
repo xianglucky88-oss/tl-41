@@ -1,7 +1,8 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult } from '@shared/types';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult, WorkflowTemplate, WorkflowGraph, ShareLink, TemplateCategory } from '@shared/types';
 import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
+import { BUILT_IN_TEMPLATES } from '@shared/workflowTemplates';
 
 interface AnalysisState {
   projects: Project[];
@@ -33,6 +34,12 @@ interface AnalysisState {
     searchText?: string;
     status?: string;
   };
+  templates: WorkflowTemplate[];
+  favoriteTemplates: WorkflowTemplate[];
+  currentTemplate: WorkflowTemplate | null;
+  templateCategories: { id: string; name: string; count: number }[];
+  popularTemplates: WorkflowTemplate[];
+  shareLinks: ShareLink[];
   loading: boolean;
   error: string | null;
 }
@@ -82,6 +89,29 @@ interface AnalysisActions {
   toggleMethylationSite: (sitePosition: number) => MethylationToggleResult | null;
   batchToggleMethylationSites: (islandId: string, methylate: boolean) => number;
   clearCpgResults: () => void;
+  fetchTemplates: (params?: {
+    category?: string;
+    search?: string;
+    isBuiltIn?: boolean;
+    isFavorite?: boolean;
+    sortBy?: string;
+    sortOrder?: 'asc' | 'desc';
+    page?: number;
+    pageSize?: number;
+  }) => Promise<void>;
+  fetchTemplateCategories: () => Promise<void>;
+  fetchTemplateById: (id: string) => Promise<WorkflowTemplate | null>;
+  createTemplate: (data: Partial<WorkflowTemplate> & { graph: WorkflowGraph }) => Promise<WorkflowTemplate>;
+  updateTemplate: (id: string, data: Partial<WorkflowTemplate>) => Promise<void>;
+  deleteTemplate: (id: string) => Promise<void>;
+  toggleFavorite: (templateId: string) => Promise<{ isFavorited: boolean }>;
+  fetchFavorites: () => Promise<void>;
+  shareTemplate: (templateId: string, permissions?: 'view' | 'view_copy', expiresInDays?: number) => Promise<ShareLink & { shareUrl: string }>;
+  revokeShare: (shareId: string) => Promise<void>;
+  fetchShares: () => Promise<void>;
+  useTemplate: (templateId: string) => Promise<{ graph: WorkflowGraph; parameters: Record<string, string | number | boolean>; name: string } | null>;
+  fetchPopularTemplates: (limit?: number) => Promise<void>;
+  setCurrentTemplate: (template: WorkflowTemplate | null) => void;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -142,6 +172,12 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   selectedSampleIds: [],
   selectedVariantIds: [],
   filters: {},
+  templates: BUILT_IN_TEMPLATES,
+  favoriteTemplates: [],
+  currentTemplate: null,
+  templateCategories: [],
+  popularTemplates: [],
+  shareLinks: [],
   loading: false,
   error: null,
 
@@ -853,4 +889,293 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   clearCpgResults: () => {
     set({ cpgScanResult: null });
   },
+
+  fetchTemplates: async (params) => {
+    set({ loading: true, error: null });
+    try {
+      const query = new URLSearchParams();
+      if (params?.category) query.set('category', params.category);
+      if (params?.search) query.set('search', params.search);
+      if (params?.isBuiltIn !== undefined) query.set('isBuiltIn', String(params.isBuiltIn));
+      if (params?.isFavorite !== undefined) query.set('isFavorite', String(params.isFavorite));
+      if (params?.sortBy) query.set('sortBy', params.sortBy);
+      if (params?.sortOrder) query.set('sortOrder', params.sortOrder);
+      if (params?.page) query.set('page', String(params.page));
+      if (params?.pageSize) query.set('pageSize', String(params.pageSize));
+
+      const res = await fetch(`/api/templates?${query.toString()}`);
+      const data = await res.json();
+      if (data.success) {
+        set({ templates: data.data.items });
+      }
+    } catch {
+      set({ templates: BUILT_IN_TEMPLATES });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  fetchTemplateCategories: async () => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch('/api/templates/categories');
+      const data = await res.json();
+      if (data.success) {
+        set({ templateCategories: data.data });
+      }
+    } catch {
+      set({
+        templateCategories: [
+          { id: 'variant_calling', name: '变异检测', count: 0 },
+          { id: 'alignment', name: '序列比对', count: 0 },
+          { id: 'assembly', name: '基因组组装', count: 0 },
+          { id: 'annotation', name: '基因注释', count: 0 },
+          { id: 'rna_seq', name: '转录组分析', count: 0 },
+          { id: 'chip_seq', name: 'ChIP-seq分析', count: 0 },
+          { id: 'methylation', name: '甲基化分析', count: 0 },
+          { id: 'metagenomics', name: '宏基因组', count: 0 },
+          { id: 'single_cell', name: '单细胞分析', count: 0 },
+          { id: 'custom', name: '自定义模板', count: 0 },
+        ],
+      });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  fetchTemplateById: async (id) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/templates/${id}`);
+      const data = await res.json();
+      if (data.success) {
+        set({ currentTemplate: data.data });
+        return data.data;
+      }
+    } catch {
+      const template = BUILT_IN_TEMPLATES.find(t => t.id === id);
+      if (template) {
+        set({ currentTemplate: template });
+        return template;
+      }
+    } finally {
+      set({ loading: false });
+    }
+    return null;
+  },
+
+  createTemplate: async (data) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch('/api/templates', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (result.success) {
+        set(state => ({ templates: [...state.templates, result.data] }));
+        return result.data;
+      }
+      throw new Error(result.message || '创建失败');
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '创建模板失败' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  updateTemplate: async (id, data) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/templates/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(data),
+      });
+      const result = await res.json();
+      if (result.success) {
+        set(state => ({
+          templates: state.templates.map(t => t.id === id ? result.data : t),
+          currentTemplate: state.currentTemplate?.id === id ? result.data : state.currentTemplate,
+        }));
+      } else {
+        throw new Error(result.message || '更新失败');
+      }
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '更新模板失败' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  deleteTemplate: async (id) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/templates/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        set(state => ({
+          templates: state.templates.filter(t => t.id !== id),
+          favoriteTemplates: state.favoriteTemplates.filter(t => t.id !== id),
+          currentTemplate: state.currentTemplate?.id === id ? null : state.currentTemplate,
+        }));
+      } else {
+        throw new Error(data.message || '删除失败');
+      }
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '删除模板失败' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  toggleFavorite: async (templateId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/templates/${templateId}/favorite`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        set(state => ({
+          templates: state.templates.map(t =>
+            t.id === templateId ? { ...t, isFavorited: data.data.isFavorited } : t
+          ),
+          favoriteTemplates: data.data.isFavorited
+            ? [...state.favoriteTemplates, state.templates.find(t => t.id === templateId)!]
+            : state.favoriteTemplates.filter(t => t.id !== templateId),
+        }));
+        return data.data;
+      }
+      throw new Error(data.message || '操作失败');
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '收藏操作失败' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  fetchFavorites: async () => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch('/api/favorites');
+      const data = await res.json();
+      if (data.success) {
+        set({ favoriteTemplates: data.data.items });
+      }
+    } catch {
+      set({ favoriteTemplates: [] });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  shareTemplate: async (templateId, permissions = 'view', expiresInDays) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/templates/${templateId}/share`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions, expiresInDays }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        set(state => ({
+          shareLinks: [...state.shareLinks, data.data],
+        }));
+        return data.data;
+      }
+      throw new Error(data.message || '分享失败');
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '创建分享链接失败' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  revokeShare: async (shareId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/share/${shareId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        set(state => ({
+          shareLinks: state.shareLinks.map(s =>
+            s.id === shareId ? { ...s, isActive: false } : s
+          ),
+        }));
+      } else {
+        throw new Error(data.message || '撤销失败');
+      }
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '撤销分享失败' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  fetchShares: async () => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch('/api/shares');
+      const data = await res.json();
+      if (data.success) {
+        set({ shareLinks: data.data.items });
+      }
+    } catch {
+      set({ shareLinks: [] });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  useTemplate: async (templateId) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/templates/${templateId}/use`, { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        return data.data;
+      }
+      const template = BUILT_IN_TEMPLATES.find(t => t.id === templateId);
+      if (template) {
+        return {
+          graph: template.graph,
+          parameters: template.parameters,
+          name: template.name,
+        };
+      }
+      throw new Error(data.message || '加载模板失败');
+    } catch (error) {
+      set({ error: error instanceof Error ? error.message : '加载模板失败' });
+      throw error;
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  fetchPopularTemplates: async (limit = 8) => {
+    set({ loading: true, error: null });
+    try {
+      const res = await fetch(`/api/templates/popular?limit=${limit}`);
+      const data = await res.json();
+      if (data.success) {
+        set({ popularTemplates: data.data });
+      }
+    } catch {
+      const popular = [...BUILT_IN_TEMPLATES]
+        .sort((a, b) => b.usageCount - a.usageCount)
+        .slice(0, limit);
+      set({ popularTemplates: popular });
+    } finally {
+      set({ loading: false });
+    }
+  },
+
+  setCurrentTemplate: (template) => set({ currentTemplate: template }),
 }));
