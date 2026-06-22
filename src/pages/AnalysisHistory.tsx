@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   History, Filter, Search, ChevronDown, ChevronRight, Clock, User,
   GitBranch, FileText, Play, BarChart3, Settings, Download, Eye,
-  RefreshCw, AlertCircle, CheckCircle, Loader2, X, Workflow
+  RefreshCw, AlertCircle, CheckCircle, Loader2, X, Workflow,
+  GitCompare, ArrowRight
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import StatusBadge from '@/components/StatusBadge';
-import type { AnalysisRecord, AnalysisStep } from '@shared/types';
+import VersionDiffView from '@/components/VersionDiffView';
+import { computeVersionDiff } from '@/utils/diffUtils';
+import type { AnalysisRecord, AnalysisStep, AnalysisVersionHistory } from '@shared/types';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 
 export default function AnalysisHistory() {
@@ -24,6 +27,8 @@ export default function AnalysisHistory() {
   const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisRecord | null>(null);
   const [showVersionModal, setShowVersionModal] = useState(false);
   const [showParameterModal, setShowParameterModal] = useState(false);
+  const [showDiffModal, setShowDiffModal] = useState(false);
+  const [diffBaseVersion, setDiffBaseVersion] = useState<number | null>(null);
 
   useEffect(() => {
     fetchProjects();
@@ -209,6 +214,11 @@ export default function AnalysisHistory() {
           analysis={selectedAnalysis}
           onClose={() => setShowVersionModal(false)}
           getToolName={getToolName}
+          onCompare={(baseVersion) => {
+            setDiffBaseVersion(baseVersion);
+            setShowVersionModal(false);
+            setShowDiffModal(true);
+          }}
         />
       )}
 
@@ -216,6 +226,17 @@ export default function AnalysisHistory() {
         <ParameterSnapshotModal
           analysis={selectedAnalysis}
           onClose={() => setShowParameterModal(false)}
+        />
+      )}
+
+      {showDiffModal && selectedAnalysis && diffBaseVersion !== null && (
+        <VersionDiffModal
+          analysis={selectedAnalysis}
+          baseVersion={diffBaseVersion}
+          onClose={() => {
+            setShowDiffModal(false);
+            setDiffBaseVersion(null);
+          }}
         />
       )}
     </div>
@@ -503,10 +524,19 @@ function StepTimelineItem({
   );
 }
 
+interface VersionHistoryModalProps {
+  analysis: AnalysisRecord;
+  onClose: () => void;
+  getToolName: (id: string) => string;
+  onCompare?: (baseVersion: number) => void;
+}
+
 function VersionHistoryModal({
-  analysis, onClose, getToolName
-}: { analysis: AnalysisRecord; onClose: () => void; getToolName: (id: string) => string }) {
+  analysis, onClose, getToolName, onCompare
+}: VersionHistoryModalProps) {
   const { updateAnalysis } = useAnalysisStore();
+  const [compareMode, setCompareMode] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<number | null>(null);
 
   const handleRestoreVersion = async (version: number) => {
     const versionData = analysis.versionHistory.find(v => v.version === version);
@@ -521,6 +551,17 @@ function VersionHistoryModal({
     alert('版本恢复成功！已创建新版本。');
   };
 
+  const handleSelectForCompare = (version: number) => {
+    if (selectedVersion === null) {
+      setSelectedVersion(version);
+    } else if (selectedVersion === version) {
+      setSelectedVersion(null);
+    } else {
+      const baseVersion = Math.min(selectedVersion, version);
+      onCompare?.(baseVersion);
+    }
+  };
+
   const sortedHistory = [...analysis.versionHistory].sort((a, b) => b.version - a.version);
 
   return (
@@ -529,70 +570,139 @@ function VersionHistoryModal({
         <div className="p-5 border-b border-slate-700 flex items-center justify-between">
           <div>
             <h2 className="text-xl font-bold text-white">版本历史 - {analysis.name}</h2>
-            <p className="text-sm text-slate-400">当前版本 v{analysis.version} · 共 {analysis.versionHistory.length} 个历史版本</p>
+            <p className="text-sm text-slate-400">
+              当前版本 v{analysis.version} · 共 {analysis.versionHistory.length} 个历史版本
+            </p>
           </div>
-          <button
-            className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
-            onClick={onClose}
-          >
-            <X size={20} className="text-slate-400" />
-          </button>
+          <div className="flex items-center gap-2">
+            {analysis.versionHistory.length >= 2 && (
+              <button
+                className={`btn-secondary text-sm flex items-center gap-2 ${
+                  compareMode ? 'bg-primary-500/20 text-primary-400 border-primary-500/30' : ''
+                }`}
+                onClick={() => {
+                  setCompareMode(!compareMode);
+                  setSelectedVersion(null);
+                }}
+              >
+                <GitCompare size={14} />
+                {compareMode ? '取消对比' : '对比版本'}
+              </button>
+            )}
+            <button
+              className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              onClick={onClose}
+            >
+              <X size={20} className="text-slate-400" />
+            </button>
+          </div>
         </div>
-        <div className="p-5 overflow-y-auto max-h-[calc(80vh-80px)]">
+        {compareMode && (
+          <div className="px-5 py-3 bg-primary-500/10 border-b border-primary-500/20">
+            <p className="text-sm text-primary-300">
+              {selectedVersion === null
+                ? '请选择第一个版本进行对比'
+                : `已选择 v${selectedVersion}，请选择第二个版本进行对比`}
+            </p>
+          </div>
+        )}
+        <div className="p-5 overflow-y-auto max-h-[calc(80vh-120px)]">
           <div className="space-y-4">
             {sortedHistory.map((v) => (
-              <div key={v.version} className="card p-4 bg-slate-800/50">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold ${
-                      v.version === analysis.version
-                        ? 'bg-gradient-to-br from-primary-500 to-primary-600'
-                        : 'bg-slate-700'
-                    }`}>
-                      v{v.version}
-                    </div>
-                    <div>
-                      <p className="font-medium text-white">{v.description}</p>
-                      <p className="text-xs text-slate-500">
-                        {new Date(v.timestamp).toLocaleString('zh-CN')} · {v.changedBy}
-                      </p>
-                    </div>
-                  </div>
-                  {v.version === analysis.version ? (
-                    <span className="badge bg-primary-500/20 text-primary-400">当前版本</span>
-                  ) : (
-                    <button
-                      className="btn-secondary text-xs"
-                      onClick={() => handleRestoreVersion(v.version)}
-                    >
-                      恢复此版本
-                    </button>
-                  )}
-                </div>
-                <div className="text-sm text-slate-400 space-y-1">
-                  <p><span className="text-slate-500">分析步骤：</span>{v.steps.length > 0 ? v.steps.map(s => getToolName(s.toolId)).join(' → ') : '-'}</p>
-                  <p><span className="text-slate-500">样本数：</span>{v.sampleIds.length} 个</p>
-                  {Object.keys(v.parametersSnapshot).length > 0 && (
-                    <p><span className="text-slate-500">参数配置：</span>{Object.keys(v.parametersSnapshot).length} 项</p>
-                  )}
-                </div>
-                {v.steps.length > 0 && (
-                  <div className="mt-3 pt-3 border-t border-slate-700/50">
-                    <p className="text-xs text-slate-500 mb-2">步骤详情：</p>
-                    <div className="flex flex-wrap gap-1">
-                      {v.steps.map(s => (
-                        <span key={s.stepId} className="text-xs px-2 py-1 bg-slate-900/50 rounded text-slate-400">
-                          {s.stepName} ({getToolName(s.toolId)})
-                        </span>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
+              <VersionHistoryCard
+                key={v.version}
+                version={v}
+                isCurrent={v.version === analysis.version}
+                isSelected={selectedVersion === v.version}
+                compareMode={compareMode}
+                getToolName={getToolName}
+                onRestore={() => handleRestoreVersion(v.version)}
+                onSelect={() => handleSelectForCompare(v.version)}
+              />
             ))}
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+interface VersionHistoryCardProps {
+  version: AnalysisVersionHistory;
+  isCurrent: boolean;
+  isSelected: boolean;
+  compareMode: boolean;
+  getToolName: (id: string) => string;
+  onRestore: () => void;
+  onSelect: () => void;
+}
+
+function VersionHistoryCard({
+  version, isCurrent, isSelected, compareMode, getToolName, onRestore, onSelect
+}: VersionHistoryCardProps) {
+  return (
+    <div
+      className={`card p-4 bg-slate-800/50 transition-all cursor-pointer ${
+        compareMode ? 'hover:border-primary-500/50' : ''
+      } ${
+        isSelected ? 'border-primary-500 ring-2 ring-primary-500/30' : ''
+      }`}
+      onClick={compareMode ? onSelect : undefined}
+    >
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-white font-bold ${
+            isCurrent
+              ? 'bg-gradient-to-br from-primary-500 to-primary-600'
+              : isSelected
+                ? 'bg-primary-600'
+                : 'bg-slate-700'
+          }`}>
+            v{version.version}
+          </div>
+          <div>
+            <p className="font-medium text-white">{version.description}</p>
+            <p className="text-xs text-slate-500">
+              {new Date(version.timestamp).toLocaleString('zh-CN')} · {version.changedBy}
+            </p>
+          </div>
+        </div>
+        {compareMode ? (
+          isSelected ? (
+            <span className="badge bg-primary-500/20 text-primary-400">已选择</span>
+          ) : (
+            <span className="badge bg-slate-700 text-slate-400">点击选择</span>
+          )
+        ) : isCurrent ? (
+          <span className="badge bg-primary-500/20 text-primary-400">当前版本</span>
+        ) : (
+          <button
+            className="btn-secondary text-xs"
+            onClick={(e) => { e.stopPropagation(); onRestore(); }}
+          >
+            恢复此版本
+          </button>
+        )}
+      </div>
+      <div className="text-sm text-slate-400 space-y-1">
+        <p><span className="text-slate-500">分析步骤：</span>{version.steps.length > 0 ? version.steps.map(s => getToolName(s.toolId)).join(' → ') : '-'}</p>
+        <p><span className="text-slate-500">样本数：</span>{version.sampleIds.length} 个</p>
+        {Object.keys(version.parametersSnapshot).length > 0 && (
+          <p><span className="text-slate-500">参数配置：</span>{Object.keys(version.parametersSnapshot).length} 项</p>
+        )}
+      </div>
+      {version.steps.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-slate-700/50">
+          <p className="text-xs text-slate-500 mb-2">步骤详情：</p>
+          <div className="flex flex-wrap gap-1">
+            {version.steps.map(s => (
+              <span key={s.stepId} className="text-xs px-2 py-1 bg-slate-900/50 rounded text-slate-400">
+                {s.stepName} ({getToolName(s.toolId)})
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -641,6 +751,97 @@ function ParameterSnapshotModal({
               </div>
             )}
           </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+interface VersionDiffModalProps {
+  analysis: AnalysisRecord;
+  baseVersion: number;
+  onClose: () => void;
+}
+
+function VersionDiffModal({ analysis, baseVersion, onClose }: VersionDiffModalProps) {
+  const { samples } = useAnalysisStore();
+  const [compareVersion, setCompareVersion] = useState<number>(() => {
+    const versions = analysis.versionHistory.map(v => v.version).sort((a, b) => b - a);
+    const baseIdx = versions.indexOf(baseVersion);
+    if (baseIdx > 0) return versions[0];
+    if (versions.length > 1) return versions[1];
+    return baseVersion;
+  });
+
+  const sortedVersions = useMemo(
+    () => [...analysis.versionHistory].sort((a, b) => b.version - a.version),
+    [analysis.versionHistory]
+  );
+
+  const sampleNameMap = useMemo(() => {
+    const map = new Map<string, string>();
+    samples.forEach(s => map.set(s.id, s.name));
+    return map;
+  }, [samples]);
+
+  const oldVersion = analysis.versionHistory.find(v => v.version === baseVersion);
+  const newVersion = analysis.versionHistory.find(v => v.version === compareVersion);
+
+  const diff = useMemo(() => {
+    if (!oldVersion || !newVersion) return null;
+    const older = oldVersion.version < newVersion.version ? oldVersion : newVersion;
+    const newer = oldVersion.version < newVersion.version ? newVersion : oldVersion;
+    return computeVersionDiff(older, newer, sampleNameMap);
+  }, [oldVersion, newVersion, sampleNameMap]);
+
+  if (!oldVersion || !newVersion || !diff) {
+    return null;
+  }
+
+  const effectiveOld = oldVersion.version < newVersion.version ? oldVersion : newVersion;
+  const effectiveNew = oldVersion.version < newVersion.version ? newVersion : oldVersion;
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-800 rounded-2xl border border-slate-700 w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col">
+        <div className="p-5 border-b border-slate-700 flex items-center justify-between flex-shrink-0">
+          <div>
+            <h2 className="text-xl font-bold text-white">版本对比 - {analysis.name}</h2>
+            <p className="text-sm text-slate-400">
+              v{effectiveOld.version} <ArrowRight size={14} className="inline mx-1" /> v{effectiveNew.version}
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="text-slate-400">对比版本：</span>
+              <select
+                className="select-field text-xs w-28"
+                value={compareVersion}
+                onChange={(e) => setCompareVersion(Number(e.target.value))}
+              >
+                {sortedVersions
+                  .filter(v => v.version !== baseVersion)
+                  .map(v => (
+                    <option key={v.version} value={v.version}>
+                      v{v.version}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <button
+              className="p-2 hover:bg-slate-700 rounded-lg transition-colors"
+              onClick={onClose}
+            >
+              <X size={20} className="text-slate-400" />
+            </button>
+          </div>
+        </div>
+        <div className="p-5 overflow-y-auto flex-1">
+          <VersionDiffView
+            diff={diff}
+            oldVersion={effectiveOld}
+            newVersion={effectiveNew}
+          />
         </div>
       </div>
     </div>
