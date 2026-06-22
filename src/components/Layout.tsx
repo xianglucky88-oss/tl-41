@@ -1,6 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom';
 import {
-  LayoutDashboard, FlaskConical, TestTube, Workflow, BarChart3, History, GitCompare, FileText, Search, Bell, User, Dna, BookOpen, Scissors, Sparkles, Hexagon, LayoutTemplate } from 'lucide-react';
+  LayoutDashboard, FlaskConical, TestTube, Workflow, BarChart3, History, GitCompare, FileText, Search, Bell, User, Dna, BookOpen, Scissors, Sparkles, Hexagon, LayoutTemplate, Calculator } from 'lucide-react';
 import type { ReactNode } from 'react';
 
 interface LayoutProps {
@@ -19,6 +19,7 @@ const navItems = [
   { path: '/restriction-enzyme', label: '限制酶酶切', icon: Scissors },
   { path: '/primer-design', label: 'PCR引物设计', icon: Sparkles },
   { path: '/cpg-island', label: 'CpG岛扫描', icon: Hexagon },
+  { path: '/protein-property', label: '蛋白质性质', icon: Calculator },
   { path: '/history', label: '分析历史', icon: History },
   { path: '/variants', label: '变异比对', icon: GitCompare },
   { path: '/reports', label: '报告中心', icon: FileText },

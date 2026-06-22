@@ -658,3 +658,54 @@ export const TEMPLATE_CATEGORY_LABELS: Record<TemplateCategory, string> = {
   single_cell: '单细胞分析',
   custom: '自定义模板',
 };
+
+export interface AminoAcidCount {
+  aminoAcid: string;
+  code: string;
+  count: number;
+  percentage: number;
+}
+
+export interface HydrophobicityPoint {
+  position: number;
+  value: number;
+  windowStart: number;
+  windowEnd: number;
+}
+
+export interface ProteinProperties {
+  molecularWeight: number;
+  isoelectricPoint: number;
+  extinctionCoefficient: number;
+  extinctionCoefficientReduced: number;
+  molarAbsorbance: number;
+  solubility: number;
+  instabilityIndex: number;
+  aliphaticIndex: number;
+  grandAverageHydropathicity: number;
+  isStable: boolean;
+}
+
+export interface ProteinAnalysisResult {
+  orfId: string;
+  proteinSequence: string;
+  proteinLength: number;
+  aminoAcidCounts: AminoAcidCount[];
+  properties: ProteinProperties;
+  hydrophobicityProfile: HydrophobicityPoint[];
+  chargeProfile: { position: number; charge: number }[];
+  basicCount: number;
+  acidicCount: number;
+  polarCount: number;
+  nonpolarCount: number;
+  aromaticCount: number;
+}
+
+export interface ProteinPropertyCalcResult {
+  sequenceId: string;
+  sequenceName: string;
+  totalProteins: number;
+  results: ProteinAnalysisResult[];
+  windowSize: number;
+  createdAt: string;
+}

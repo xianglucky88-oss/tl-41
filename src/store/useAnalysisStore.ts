@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult, WorkflowTemplate, WorkflowGraph, ShareLink, TemplateCategory, ReportSection, ReportSectionType, LogLine, LogLevel, AnalysisStep } from '@shared/types';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation, generateStepLogLines, ensureAnalysisLogLines } from '@shared/mockData';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult, WorkflowTemplate, WorkflowGraph, ShareLink, TemplateCategory, ReportSection, ReportSectionType, LogLine, LogLevel, AnalysisStep, ProteinPropertyCalcResult, ProteinAnalysisResult } from '@shared/types';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation, generateStepLogLines, ensureAnalysisLogLines, calculateProteinProperties, analyzeProtein } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 import { BUILT_IN_TEMPLATES } from '@shared/workflowTemplates';
 
@@ -25,6 +25,7 @@ interface AnalysisState {
   primerDesignResult: PrimerDesignResult | null;
   primerConstraints: PrimerConstraints;
   cpgScanResult: CpgIslandScanResult | null;
+  proteinCalcResult: ProteinPropertyCalcResult | null;
   restrictionEnzymes: typeof RESTRICTION_ENZYMES;
   selectedSampleIds: string[];
   selectedVariantIds: string[];
@@ -91,6 +92,9 @@ interface AnalysisActions {
   toggleMethylationSite: (sitePosition: number) => MethylationToggleResult | null;
   batchToggleMethylationSites: (islandId: string, methylate: boolean) => number;
   clearCpgResults: () => void;
+  calculateProteinProperties: (sampleId: string, minOrfLength?: number, windowSize?: number, orfIds?: string[]) => Promise<void>;
+  analyzeSingleProtein: (sequence: string, orfId?: string, windowSize?: number) => ProteinAnalysisResult;
+  clearProteinResults: () => void;
   fetchTemplates: (params?: {
     category?: string;
     search?: string;
@@ -185,6 +189,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   primerDesignResult: null,
   primerConstraints: { ...DEFAULT_PRIMER_CONSTRAINTS },
   cpgScanResult: null,
+  proteinCalcResult: null,
   restrictionEnzymes: RESTRICTION_ENZYMES,
   selectedSampleIds: [],
   selectedVariantIds: [],
@@ -915,6 +920,39 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
 
   clearCpgResults: () => {
     set({ cpgScanResult: null });
+  },
+
+  calculateProteinProperties: async (sampleId, minOrfLength = 150, windowSize = 9, orfIds) => {
+    set({ loading: true, error: null });
+    try {
+      await delay(500);
+      const sample = get().samples.find(s => s.id === sampleId);
+      if (!sample) {
+        set({ error: '样本不存在', loading: false });
+        return;
+      }
+      const orfPrediction = predictOrfs(sample.sequence, sampleId, minOrfLength);
+      let targetOrfs = orfPrediction.orfs;
+
+      if (orfIds && orfIds.length > 0) {
+        targetOrfs = orfPrediction.orfs.filter(o => orfIds.includes(o.id));
+      } else {
+        targetOrfs = orfPrediction.orfs.slice(0, 20);
+      }
+
+      const result = calculateProteinProperties(targetOrfs, sampleId, sample.name, windowSize);
+      set({ proteinCalcResult: result, loading: false });
+    } catch {
+      set({ error: '蛋白质理化性质计算失败', loading: false });
+    }
+  },
+
+  analyzeSingleProtein: (sequence, orfId = 'custom', windowSize = 9) => {
+    return analyzeProtein(sequence, orfId, windowSize);
+  },
+
+  clearProteinResults: () => {
+    set({ proteinCalcResult: null });
   },
 
   fetchTemplates: async (params) => {

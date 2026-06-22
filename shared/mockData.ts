@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult, CpgSite, CpgIsland, CpgScanParameters, CpgIslandScanResult, MethylationToggleResult, SequencingQCMetrics, LogLine, LogLevel, AnalysisStep } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult, CpgSite, CpgIsland, CpgScanParameters, CpgIslandScanResult, MethylationToggleResult, SequencingQCMetrics, LogLine, LogLevel, AnalysisStep, AminoAcidCount, HydrophobicityPoint, ProteinProperties, ProteinAnalysisResult, ProteinPropertyCalcResult } from './types.js';
 import { DEFAULT_CPG_SCAN_PARAMETERS } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
@@ -1966,4 +1966,413 @@ export const batchToggleMethylation = (
     : 0;
 
   return changedCount;
+};
+
+const AMINO_ACID_MASSES: Record<string, number> = {
+  A: 71.0371, R: 156.1011, N: 114.0429, D: 115.0269,
+  C: 103.0092, E: 129.0426, Q: 128.0586, G: 57.0215,
+  H: 137.0589, I: 113.0841, L: 113.0841, K: 128.0950,
+  M: 131.0405, F: 147.0684, P: 97.0528, S: 87.0320,
+  T: 101.0477, W: 186.0793, Y: 163.0633, V: 99.0684
+};
+
+const AMINO_ACID_PKA: Record<string, { nTerm: number; cTerm: number; sideChain: number | null }> = {
+  A: { nTerm: 9.69, cTerm: 2.34, sideChain: null },
+  R: { nTerm: 9.04, cTerm: 2.17, sideChain: 12.48 },
+  N: { nTerm: 8.80, cTerm: 2.02, sideChain: null },
+  D: { nTerm: 9.60, cTerm: 1.88, sideChain: 3.65 },
+  C: { nTerm: 10.28, cTerm: 1.96, sideChain: 8.18 },
+  E: { nTerm: 9.67, cTerm: 2.19, sideChain: 4.25 },
+  Q: { nTerm: 9.13, cTerm: 2.17, sideChain: null },
+  G: { nTerm: 9.60, cTerm: 2.34, sideChain: null },
+  H: { nTerm: 9.17, cTerm: 1.82, sideChain: 6.00 },
+  I: { nTerm: 9.60, cTerm: 2.36, sideChain: null },
+  L: { nTerm: 9.60, cTerm: 2.36, sideChain: null },
+  K: { nTerm: 8.95, cTerm: 2.18, sideChain: 10.53 },
+  M: { nTerm: 9.21, cTerm: 2.28, sideChain: null },
+  F: { nTerm: 9.13, cTerm: 2.20, sideChain: null },
+  P: { nTerm: 10.60, cTerm: 1.99, sideChain: null },
+  S: { nTerm: 9.15, cTerm: 2.21, sideChain: null },
+  T: { nTerm: 9.10, cTerm: 2.09, sideChain: null },
+  W: { nTerm: 9.39, cTerm: 2.38, sideChain: null },
+  Y: { nTerm: 9.11, cTerm: 2.20, sideChain: 10.07 },
+  V: { nTerm: 9.62, cTerm: 2.32, sideChain: null }
+};
+
+const KYTE_DOOLITTLE: Record<string, number> = {
+  A: 1.8, R: -4.5, N: -3.5, D: -3.5, C: 2.5, Q: -3.5, E: -3.5,
+  G: -0.4, H: -3.2, I: 4.5, L: 3.8, K: -3.9, M: 1.9, F: 2.8,
+  P: -1.6, S: -0.8, T: -0.7, W: -0.9, Y: -1.3, V: 4.2
+};
+
+const INSTABILITY_INDEX_DIPEPTIDES: Record<string, number> = {
+  'AA': 0, 'AK': 0, 'AL': 7, 'AR': -7, 'AN': -13, 'AD': -6, 'AC': 3, 'AQ': -3, 'AE': -4, 'AG': -2,
+  'AH': -6, 'AI': 11, 'AV': 9, 'AW': 2, 'AY': -11, 'AS': -1, 'AT': -2, 'AP': -5, 'AM': 3, 'AF': 5,
+  'KA': -1, 'KK': -1, 'KL': 1, 'KR': -4, 'KN': -16, 'KD': -13, 'KC': -1, 'KQ': -9, 'KE': -9, 'KG': -7,
+  'KH': -11, 'KI': 1, 'KV': 2, 'KW': -7, 'KY': -22, 'KS': -11, 'KT': -10, 'KP': -10, 'KM': -10, 'KF': -12,
+  'RA': -4, 'RK': -5, 'RL': -7, 'RR': -6, 'RN': -12, 'RD': -7, 'RC': -3, 'RQ': -5, 'RE': -7, 'RG': 0,
+  'RH': -6, 'RI': -8, 'RV': -8, 'RW': -7, 'RY': -15, 'RS': -7, 'RT': -8, 'RP': -6, 'RM': -5, 'RF': -4,
+  'NA': -15, 'NK': -10, 'NL': -12, 'NR': -8, 'NN': -9, 'ND': -7, 'NC': -5, 'NQ': -14, 'NE': -14, 'NG': -19,
+  'NH': -4, 'NI': -8, 'NV': -11, 'NW': -11, 'NY': -25, 'NS': -14, 'NT': -11, 'NP': -17, 'NM': -16, 'NF': -14,
+  'DA': -18, 'DK': -11, 'DL': -18, 'DR': -20, 'DN': -17, 'DD': -9, 'DC': -1, 'DQ': -21, 'DE': -13, 'DG': -19,
+  'DH': -17, 'DI': -24, 'DV': -24, 'DW': -13, 'DY': -29, 'DS': -13, 'DT': -14, 'DP': -15, 'DM': -14, 'DF': -20,
+  'CA': 0, 'CK': -2, 'CL': -8, 'CR': -5, 'CN': -3, 'CD': -1, 'CC': 4, 'CQ': -8, 'CE': -2, 'CG': -1,
+  'CH': -5, 'CI': -2, 'CV': -4, 'CW': -11, 'CY': -1, 'CS': 0, 'CT': 1, 'CP': -5, 'CM': 0, 'CF': -3,
+  'QA': -14, 'QK': -15, 'QL': -3, 'QR': -10, 'QN': -12, 'QD': -19, 'QC': -7, 'QQ': -11, 'QE': -10, 'QG': -14,
+  'QH': -5, 'QI': 1, 'QV': -6, 'QW': -8, 'QY': -21, 'QS': -13, 'QT': -7, 'QP': -15, 'QM': -9, 'QF': -9,
+  'EA': -16, 'EK': -7, 'EL': -12, 'ER': -13, 'EN': -20, 'ED': -16, 'EC': -1, 'EQ': -12, 'EE': -12, 'EG': -15,
+  'EH': -10, 'EI': -16, 'EV': -19, 'EW': -15, 'EY': -27, 'ES': -12, 'ET': -12, 'EP': -13, 'EM': -11, 'EF': -14,
+  'GA': -13, 'GK': -18, 'GL': -4, 'GR': -9, 'GN': -15, 'GD': -11, 'GC': 2, 'GQ': -15, 'GE': -13, 'GG': -18,
+  'GH': -15, 'GI': -6, 'GV': -5, 'GW': -10, 'GY': -25, 'GS': -7, 'GT': -15, 'GP': -17, 'GM': -12, 'GF': -15,
+  'HA': 1, 'HK': -3, 'HL': 11, 'HR': 2, 'HN': -1, 'HD': 2, 'HC': 0, 'HQ': -11, 'HE': -4, 'HG': -10,
+  'HH': -2, 'HI': 11, 'HV': 7, 'HW': -1, 'HY': 0, 'HS': -3, 'HT': 0, 'HP': -2, 'HM': 2, 'HF': 6,
+  'IA': 12, 'IK': 17, 'IL': 14, 'IR': -13, 'IN': -13, 'ID': -24, 'IC': 2, 'IQ': -4, 'IE': -7, 'IG': -14,
+  'IH': -13, 'II': 19, 'IV': 29, 'IW': 5, 'IY': -10, 'IS': 8, 'IT': 12, 'IP': -9, 'IM': 7, 'IF': 12,
+  'VA': 10, 'VK': 13, 'VL': 11, 'VR': -13, 'VN': -14, 'VD': -24, 'VC': -2, 'VQ': -4, 'VE': -9, 'VG': -12,
+  'VH': -11, 'VI': 24, 'VV': 20, 'VW': 4, 'VY': -10, 'VS': 7, 'VT': 9, 'VP': -14, 'VM': 5, 'VF': 14,
+  'MA': 9, 'MK': 5, 'ML': 17, 'MR': -10, 'MN': -5, 'MD': -14, 'MC': 0, 'MQ': 0, 'ME': -2, 'MG': -10,
+  'MH': 1, 'MI': 10, 'MV': 14, 'MW': 0, 'MY': -12, 'MS': 4, 'MT': 5, 'MP': -6, 'MM': 2, 'MF': 4,
+  'FA': 9, 'FK': -4, 'FL': 13, 'FR': -11, 'FN': -17, 'FD': -23, 'FC': -3, 'FQ': -6, 'FE': -9, 'FG': -12,
+  'FH': -10, 'FI': 20, 'FV': 20, 'FW': 4, 'FY': -15, 'FS': 3, 'FT': 8, 'FP': -12, 'FM': 0, 'FF': 15,
+  'PA': -6, 'PK': -4, 'PL': -11, 'PR': -16, 'PN': -11, 'PD': -14, 'PC': -4, 'PQ': -4, 'PE': -11, 'PG': -9,
+  'PH': -9, 'PI': -2, 'PV': -4, 'PW': -8, 'PY': -25, 'PS': -4, 'PT': -4, 'PP': -4, 'PM': -4, 'PF': -11,
+  'SA': 1, 'SK': -4, 'SL': 1, 'SR': -7, 'SN': -9, 'SD': -7, 'SC': -1, 'SQ': -9, 'SE': -8, 'SG': -5,
+  'SH': -1, 'SI': 4, 'SV': 2, 'SW': -8, 'SY': -19, 'SS': 0, 'ST': 0, 'SP': -5, 'SM': -2, 'SF': -1,
+  'TA': 3, 'TK': 6, 'TL': 6, 'TR': -4, 'TN': -5, 'TD': -11, 'TC': 0, 'TQ': -2, 'TE': -8, 'TG': -5,
+  'TH': -3, 'TI': 7, 'TV': 6, 'TW': -1, 'TY': -12, 'TS': 0, 'TT': 0, 'TP': -5, 'TM': 1, 'TF': 3,
+  'WA': 4, 'WK': -5, 'WL': 7, 'WR': 2, 'WN': -13, 'WD': -18, 'WC': -5, 'WQ': 0, 'WE': -11, 'WG': -9,
+  'WH': -2, 'WI': 13, 'WV': 11, 'WW': 2, 'WY': -14, 'WS': -2, 'WT': 0, 'WP': -10, 'WM': -6, 'WF': 0,
+  'YA': -13, 'YK': -12, 'YL': -4, 'YR': -15, 'YN': -23, 'YD': -19, 'YC': -2, 'YQ': -10, 'YE': -20, 'YG': -22,
+  'YH': -2, 'YI': -3, 'YV': -10, 'YW': -10, 'YY': -14, 'YS': -14, 'YT': -11, 'YP': -18, 'YM': -16, 'YF': 4,
+  'LA': 12, 'LK': 10, 'LL': 13, 'LR': -12, 'LN': -12, 'LD': -25, 'LC': -1, 'LQ': -6, 'LE': -11, 'LG': -17,
+  'LH': -10, 'LI': 22, 'LV': 24, 'LW': 6, 'LY': -8, 'LS': 7, 'LT': 10, 'LP': -13, 'LM': 3, 'LF': 10
+};
+
+const AMINO_ACID_NAMES: Record<string, string> = {
+  A: '丙氨酸', R: '精氨酸', N: '天冬酰胺', D: '天冬氨酸', C: '半胱氨酸',
+  Q: '谷氨酰胺', E: '谷氨酸', G: '甘氨酸', H: '组氨酸', I: '异亮氨酸',
+  L: '亮氨酸', K: '赖氨酸', M: '甲硫氨酸', F: '苯丙氨酸', P: '脯氨酸',
+  S: '丝氨酸', T: '苏氨酸', W: '色氨酸', Y: '酪氨酸', V: '缬氨酸'
+};
+
+const BASIC_AMINO_ACIDS = ['R', 'H', 'K'];
+const ACIDIC_AMINO_ACIDS = ['D', 'E'];
+const POLAR_AMINO_ACIDS = ['N', 'Q', 'S', 'T', 'Y', 'C'];
+const NONPOLAR_AMINO_ACIDS = ['A', 'V', 'L', 'I', 'P', 'F', 'M', 'W', 'G'];
+const AROMATIC_AMINO_ACIDS = ['F', 'Y', 'W'];
+
+const countAminoAcids = (sequence: string): AminoAcidCount[] => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  const counts: Record<string, number> = {};
+  const aminoAcidCodes = Object.keys(AMINO_ACID_MASSES);
+
+  for (const aa of aminoAcidCodes) {
+    counts[aa] = 0;
+  }
+
+  for (const char of seq) {
+    if (counts[char] !== undefined) {
+      counts[char]++;
+    }
+  }
+
+  const total = seq.length;
+  return aminoAcidCodes.map(code => ({
+    aminoAcid: AMINO_ACID_NAMES[code] || code,
+    code,
+    count: counts[code],
+    percentage: total > 0 ? Math.round((counts[code] / total) * 10000) / 100 : 0
+  }));
+};
+
+const calculateMolecularWeight = (sequence: string): number => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  let weight = 18.0153;
+
+  for (const char of seq) {
+    if (AMINO_ACID_MASSES[char]) {
+      weight += AMINO_ACID_MASSES[char];
+    }
+  }
+
+  return Math.round(weight * 100) / 100;
+};
+
+const calculateChargeAtPH = (sequence: string, pH: number): number => {
+  if (sequence.length === 0) return 0;
+
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  const firstAA = seq[0];
+  const lastAA = seq[seq.length - 1];
+
+  let charge = 0;
+
+  const nTermPka = AMINO_ACID_PKA[firstAA]?.nTerm || 9.69;
+  charge += 1 / (1 + Math.pow(10, pH - nTermPka));
+
+  const cTermPka = AMINO_ACID_PKA[lastAA]?.cTerm || 2.34;
+  charge -= 1 / (1 + Math.pow(10, cTermPka - pH));
+
+  for (const aa of seq) {
+    const pkaInfo = AMINO_ACID_PKA[aa];
+    if (pkaInfo?.sideChain !== null && pkaInfo?.sideChain !== undefined) {
+      if (['R', 'K', 'H'].includes(aa)) {
+        charge += 1 / (1 + Math.pow(10, pH - pkaInfo.sideChain));
+      } else if (['D', 'E', 'C', 'Y'].includes(aa)) {
+        charge -= 1 / (1 + Math.pow(10, pkaInfo.sideChain - pH));
+      }
+    }
+  }
+
+  return charge;
+};
+
+const calculateIsoelectricPoint = (sequence: string): number => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  if (seq.length === 0) return 7.0;
+
+  let lowPH = 2;
+  let highPH = 12;
+
+  for (let i = 0; i < 100; i++) {
+    const midPH = (lowPH + highPH) / 2;
+    const charge = calculateChargeAtPH(seq, midPH);
+
+    if (Math.abs(charge) < 0.001) {
+      return Math.round(midPH * 100) / 100;
+    }
+
+    if (charge > 0) {
+      lowPH = midPH;
+    } else {
+      highPH = midPH;
+    }
+  }
+
+  return Math.round(((lowPH + highPH) / 2) * 100) / 100;
+};
+
+const calculateExtinctionCoefficient = (sequence: string): { oxidized: number; reduced: number; molarAbsorbance: number } => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+
+  const wCount = (seq.match(/W/g) || []).length;
+  const yCount = (seq.match(/Y/g) || []).length;
+  const cCount = (seq.match(/C/g) || []).length;
+
+  const oxidized = wCount * 5500 + yCount * 1490 + (cCount / 2) * 125;
+  const reduced = wCount * 5500 + yCount * 1490;
+
+  const mw = calculateMolecularWeight(seq);
+  const molarAbsorbance = oxidized > 0 ? Math.round((oxidized / mw) * 10000) / 10000 : 0;
+
+  return {
+    oxidized,
+    reduced,
+    molarAbsorbance
+  };
+};
+
+const calculateSolubility = (sequence: string): number => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  if (seq.length === 0) return 0;
+
+  const aaCounts = countAminoAcids(seq);
+
+  const chargedCount = aaCounts.filter(a => [...BASIC_AMINO_ACIDS, ...ACIDIC_AMINO_ACIDS].includes(a.code)).reduce((s, a) => s + a.count, 0);
+  const polarCount = aaCounts.filter(a => POLAR_AMINO_ACIDS.includes(a.code)).reduce((s, a) => s + a.count, 0);
+  const hydrophobicCount = aaCounts.filter(a => NONPOLAR_AMINO_ACIDS.includes(a.code)).reduce((s, a) => s + a.count, 0);
+
+  const chargedRatio = chargedCount / seq.length;
+  const polarRatio = polarCount / seq.length;
+  const hydrophobicRatio = hydrophobicCount / seq.length;
+
+  const pI = calculateIsoelectricPoint(seq);
+  const pIDeviation = Math.abs(pI - 7.0);
+
+  let solubility = 50;
+  solubility += chargedRatio * 40;
+  solubility += polarRatio * 20;
+  solubility -= hydrophobicRatio * 30;
+  solubility -= pIDeviation * 5;
+  solubility += Math.random() * 10 - 5;
+
+  return Math.max(0, Math.min(100, Math.round(solubility * 100) / 100));
+};
+
+const calculateInstabilityIndex = (sequence: string): number => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  if (seq.length < 2) return 0;
+
+  let total = 0;
+  for (let i = 0; i < seq.length - 1; i++) {
+    const dipeptide = seq[i] + seq[i + 1];
+    total += INSTABILITY_INDEX_DIPEPTIDES[dipeptide] || 0;
+  }
+
+  const index = (10 / seq.length) * total;
+  return Math.round(index * 100) / 100;
+};
+
+const calculateAliphaticIndex = (sequence: string): number => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  if (seq.length === 0) return 0;
+
+  const aCount = (seq.match(/A/g) || []).length;
+  const vCount = (seq.match(/V/g) || []).length;
+  const iCount = (seq.match(/I/g) || []).length;
+  const lCount = (seq.match(/L/g) || []).length;
+
+  const index = (100 * aCount + 2.9 * 100 * vCount + 3.9 * 100 * iCount + 3.9 * 100 * lCount) / seq.length;
+  return Math.round(index * 100) / 100;
+};
+
+const calculateGRAVY = (sequence: string): number => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  if (seq.length === 0) return 0;
+
+  let total = 0;
+  for (const char of seq) {
+    total += KYTE_DOOLITTLE[char] || 0;
+  }
+
+  return Math.round((total / seq.length) * 1000) / 1000;
+};
+
+const calculateHydrophobicityProfile = (sequence: string, windowSize: number = 9): HydrophobicityPoint[] => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  const profile: HydrophobicityPoint[] = [];
+
+  if (seq.length < windowSize) return profile;
+
+  for (let i = 0; i <= seq.length - windowSize; i++) {
+    const window = seq.slice(i, i + windowSize);
+    let sum = 0;
+    for (const char of window) {
+      sum += KYTE_DOOLITTLE[char] || 0;
+    }
+    profile.push({
+      position: i + Math.floor(windowSize / 2) + 1,
+      value: Math.round((sum / windowSize) * 1000) / 1000,
+      windowStart: i + 1,
+      windowEnd: i + windowSize
+    });
+  }
+
+  return profile;
+};
+
+const calculateChargeProfile = (sequence: string): { position: number; charge: number }[] => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+  const profile: { position: number; charge: number }[] = [];
+
+  for (let i = 0; i < seq.length; i++) {
+    const aa = seq[i];
+    let charge = 0;
+
+    if (i === 0) {
+      const nTermPka = AMINO_ACID_PKA[aa]?.nTerm || 9.69;
+      charge += 1 / (1 + Math.pow(10, 7.0 - nTermPka));
+    }
+
+    if (i === seq.length - 1) {
+      const cTermPka = AMINO_ACID_PKA[aa]?.cTerm || 2.34;
+      charge -= 1 / (1 + Math.pow(10, cTermPka - 7.0));
+    }
+
+    const pkaInfo = AMINO_ACID_PKA[aa];
+    if (pkaInfo?.sideChain !== null && pkaInfo?.sideChain !== undefined) {
+      if (['R', 'K', 'H'].includes(aa)) {
+        charge += 1 / (1 + Math.pow(10, 7.0 - pkaInfo.sideChain));
+      } else if (['D', 'E', 'C', 'Y'].includes(aa)) {
+        charge -= 1 / (1 + Math.pow(10, pkaInfo.sideChain - 7.0));
+      }
+    }
+
+    profile.push({
+      position: i + 1,
+      charge: Math.round(charge * 1000) / 1000
+    });
+  }
+
+  return profile;
+};
+
+const countAminoAcidCategories = (sequence: string): { basic: number; acidic: number; polar: number; nonpolar: number; aromatic: number } => {
+  const seq = sequence.toUpperCase().replace(/[^A-Z]/g, '');
+
+  let basic = 0, acidic = 0, polar = 0, nonpolar = 0, aromatic = 0;
+
+  for (const aa of seq) {
+    if (BASIC_AMINO_ACIDS.includes(aa)) basic++;
+    if (ACIDIC_AMINO_ACIDS.includes(aa)) acidic++;
+    if (POLAR_AMINO_ACIDS.includes(aa)) polar++;
+    if (NONPOLAR_AMINO_ACIDS.includes(aa)) nonpolar++;
+    if (AROMATIC_AMINO_ACIDS.includes(aa)) aromatic++;
+  }
+
+  return { basic, acidic, polar, nonpolar, aromatic };
+};
+
+export const analyzeProtein = (
+  proteinSequence: string,
+  orfId: string,
+  windowSize: number = 9
+): ProteinAnalysisResult => {
+  const seq = proteinSequence.toUpperCase().replace(/[^A-Z]/g, '').replace(/\*/g, '');
+
+  const aaCounts = countAminoAcids(seq);
+  const mw = calculateMolecularWeight(seq);
+  const pI = calculateIsoelectricPoint(seq);
+  const extCoef = calculateExtinctionCoefficient(seq);
+  const solubility = calculateSolubility(seq);
+  const instabilityIndex = calculateInstabilityIndex(seq);
+  const aliphaticIndex = calculateAliphaticIndex(seq);
+  const gravy = calculateGRAVY(seq);
+  const hydrophobicityProfile = calculateHydrophobicityProfile(seq, windowSize);
+  const chargeProfile = calculateChargeProfile(seq);
+  const categories = countAminoAcidCategories(seq);
+
+  return {
+    orfId,
+    proteinSequence: seq,
+    proteinLength: seq.length,
+    aminoAcidCounts: aaCounts,
+    properties: {
+      molecularWeight: mw,
+      isoelectricPoint: pI,
+      extinctionCoefficient: extCoef.oxidized,
+      extinctionCoefficientReduced: extCoef.reduced,
+      molarAbsorbance: extCoef.molarAbsorbance,
+      solubility,
+      instabilityIndex,
+      aliphaticIndex,
+      grandAverageHydropathicity: gravy,
+      isStable: instabilityIndex < 40
+    },
+    hydrophobicityProfile,
+    chargeProfile,
+    basicCount: categories.basic,
+    acidicCount: categories.acidic,
+    polarCount: categories.polar,
+    nonpolarCount: categories.nonpolar,
+    aromaticCount: categories.aromatic
+  };
+};
+
+export const calculateProteinProperties = (
+  orfs: OrfRecord[],
+  sequenceId: string,
+  sequenceName: string,
+  windowSize: number = 9
+): ProteinPropertyCalcResult => {
+  const results = orfs.map(orf => analyzeProtein(orf.proteinSequence, orf.id, windowSize));
+
+  return {
+    sequenceId,
+    sequenceName,
+    totalProteins: results.length,
+    results,
+    windowSize,
+    createdAt: new Date().toISOString()
+  };
 };

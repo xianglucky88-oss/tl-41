@@ -7,9 +7,10 @@ import type {
   PrimerDesignResult, PrimerConstraints,
   CpgIslandScanResult, CpgScanParameters,
   WorkflowTemplate, UserFavorite, ShareLink,
-  ShareTemplatePayload, TemplateCategory
+  ShareTemplatePayload, TemplateCategory,
+  ProteinPropertyCalcResult, ProteinAnalysisResult
 } from '../shared/types.js';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation } from '../shared/mockData.js';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation, predictOrfs, calculateProteinProperties, analyzeProtein } from '../shared/mockData.js';
 import { ALIGNMENT_TOOLS } from '../shared/toolConfigs.js';
 import { BUILT_IN_TEMPLATES, getTemplateById, getTemplatesByCategory, searchTemplates } from '../shared/workflowTemplates.js';
 
@@ -865,6 +866,58 @@ app.get('/api/templates/popular', (req, res) => {
     .slice(0, Number(limit));
 
   res.json(successResponse(templates));
+});
+
+app.post('/api/protein/calculate', async (req, res) => {
+  const { sampleId, minOrfLength = 150, windowSize = 9, orfIds } = req.body;
+
+  if (!sampleId) {
+    return res.status(400).json(errorResponse('请提供样本ID'));
+  }
+
+  const sample = MOCK_SAMPLES.find((s: Sample) => s.id === sampleId);
+  if (!sample) {
+    return res.status(404).json(errorResponse('样本不存在'));
+  }
+
+  try {
+    await new Promise(r => setTimeout(r, 500));
+
+    const orfPrediction = predictOrfs(sample.sequence, sampleId, minOrfLength);
+    let targetOrfs = orfPrediction.orfs;
+
+    if (orfIds && Array.isArray(orfIds) && orfIds.length > 0) {
+      targetOrfs = orfPrediction.orfs.filter(o => orfIds.includes(o.id));
+    } else {
+      targetOrfs = orfPrediction.orfs.slice(0, 20);
+    }
+
+    const result = calculateProteinProperties(
+      targetOrfs,
+      sampleId,
+      sample.name,
+      Number(windowSize)
+    );
+
+    res.json(successResponse(result, '蛋白质理化性质计算完成'));
+  } catch {
+    res.status(500).json(errorResponse('蛋白质理化性质计算失败'));
+  }
+});
+
+app.post('/api/protein/calculate-sequence', (req, res) => {
+  const { sequence, orfId = 'custom', windowSize = 9 } = req.body;
+
+  if (!sequence) {
+    return res.status(400).json(errorResponse('请提供蛋白质序列'));
+  }
+
+  try {
+    const result = analyzeProtein(String(sequence), orfId, Number(windowSize));
+    res.json(successResponse(result, '蛋白质理化性质计算完成'));
+  } catch {
+    res.status(500).json(errorResponse('蛋白质理化性质计算失败'));
+  }
 });
 
 app.listen(PORT, () => {
