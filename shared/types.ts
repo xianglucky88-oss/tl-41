@@ -2,6 +2,15 @@ export type AlignmentTool = 'blastn' | 'blastp' | 'clustalw' | 'mafft' | 'muscle
 
 export type AnalysisStatus = 'pending' | 'running' | 'completed' | 'failed';
 
+export type LogLevel = 'INFO' | 'WARN' | 'ERROR' | 'DEBUG' | 'SUCCESS';
+
+export interface LogLine {
+  timestamp: string;
+  level: LogLevel;
+  message: string;
+  stepId?: string;
+}
+
 export type VariantType = 'SNP' | 'INDEL' | 'INSERTION' | 'DELETION' | 'CNV' | 'TRANSLOCATION';
 
 export type VariantEffect = 'synonymous' | 'missense' | 'nonsense' | 'frameshift' | 'splice_site' | 'intronic' | 'intergenic';
@@ -91,6 +100,7 @@ export interface AnalysisStep {
   inputFileIds: string[];
   outputFileIds: string[];
   log: string;
+  logLines?: LogLine[];
 }
 
 export interface AnalysisVersionHistory {

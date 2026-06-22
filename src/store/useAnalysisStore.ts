@@ -1,6 +1,6 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult, WorkflowTemplate, WorkflowGraph, ShareLink, TemplateCategory, ReportSection, ReportSectionType } from '@shared/types';
-import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation } from '@shared/mockData';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult, WorkflowTemplate, WorkflowGraph, ShareLink, TemplateCategory, ReportSection, ReportSectionType, LogLine, LogLevel, AnalysisStep } from '@shared/types';
+import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation, generateStepLogLines, ensureAnalysisLogLines } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 import { BUILT_IN_TEMPLATES } from '@shared/workflowTemplates';
 
@@ -122,6 +122,11 @@ interface AnalysisActions {
   addReportSection: (reportId: string, type: ReportSectionType, insertIndex?: number) => Promise<void>;
   deleteReportSection: (reportId: string, sectionId: string) => Promise<void>;
   updateReport: (reportId: string, data: Partial<AnalysisReport>) => Promise<void>;
+  appendStepLog: (analysisId: string, stepId: string, line: LogLine) => void;
+  appendStepLogs: (analysisId: string, stepId: string, lines: LogLine[]) => void;
+  setStepStatus: (analysisId: string, stepId: string, status: AnalysisStep['status'], endTime?: string) => void;
+  setCurrentStepIndex: (analysisId: string, stepIndex: number) => void;
+  initStepLogLines: (analysisId: string, stepId: string, lines: LogLine[]) => void;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -154,7 +159,9 @@ const initAnalysisWithHistory = (analysis: AnalysisRecord): AnalysisRecord => {
   };
 };
 
-const initializedAnalyses = MOCK_ANALYSES.map(initAnalysisWithHistory);
+const initializedAnalyses = MOCK_ANALYSES
+  .map(initAnalysisWithHistory)
+  .map(ensureAnalysisLogLines);
 const initializedReports = MOCK_REPORTS;
 
 export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, get) => ({
@@ -336,7 +343,15 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
     set({ loading: true });
     await delay(400);
     const now = new Date().toISOString();
-    const steps = data.steps || [];
+    const sampleCount = (data.sampleIds || []).length || 3;
+    const steps: AnalysisStep[] = (data.steps || []).map(s => ({
+      ...s,
+      logLines: s.logLines && s.logLines.length > 0
+        ? s.logLines
+        : s.status === 'pending'
+          ? []
+          : generateStepLogLines(s.stepName, s.toolId, sampleCount, s.status),
+    }));
     const newAnalysis: AnalysisRecord = {
       id: `analysis_${String(get().analyses.length + 1).padStart(3, '0')}`,
       name: data.name || '新建分析',
@@ -352,7 +367,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       version: 1,
       parentAnalysisId: data.parentAnalysisId,
       currentStep: 0,
-      steps: steps,
+      steps,
       parametersSnapshot: data.parametersSnapshot || {},
       resultSummary: data.resultSummary,
       versionHistory: [{
@@ -360,7 +375,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
         timestamp: now,
         changedBy: data.createdBy || '当前用户',
         description: '分析任务创建',
-        steps: steps,
+        steps,
         parametersSnapshot: data.parametersSnapshot || {},
         sampleIds: data.sampleIds || [],
       }],
@@ -1333,5 +1348,111 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       ),
       loading: false,
     }));
+  },
+
+  appendStepLog: (analysisId, stepId, line) => {
+    set(state => {
+      const updateAnalysis = (a: AnalysisRecord): AnalysisRecord => {
+        if (a.id !== analysisId) return a;
+        return {
+          ...a,
+          steps: a.steps.map(s =>
+            s.stepId === stepId
+              ? { ...s, logLines: [...(s.logLines || []), line], log: line.message }
+              : s
+          ),
+        };
+      };
+      return {
+        analyses: state.analyses.map(updateAnalysis),
+        currentAnalysis: state.currentAnalysis
+          ? updateAnalysis(state.currentAnalysis)
+          : state.currentAnalysis,
+      };
+    });
+  },
+
+  appendStepLogs: (analysisId, stepId, lines) => {
+    if (lines.length === 0) return;
+    set(state => {
+      const updateAnalysis = (a: AnalysisRecord): AnalysisRecord => {
+        if (a.id !== analysisId) return a;
+        return {
+          ...a,
+          steps: a.steps.map(s =>
+            s.stepId === stepId
+              ? {
+                  ...s,
+                  logLines: [...(s.logLines || []), ...lines],
+                  log: lines[lines.length - 1].message,
+                }
+              : s
+          ),
+        };
+      };
+      return {
+        analyses: state.analyses.map(updateAnalysis),
+        currentAnalysis: state.currentAnalysis
+          ? updateAnalysis(state.currentAnalysis)
+          : state.currentAnalysis,
+      };
+    });
+  },
+
+  initStepLogLines: (analysisId, stepId, lines) => {
+    set(state => {
+      const updateAnalysis = (a: AnalysisRecord): AnalysisRecord => {
+        if (a.id !== analysisId) return a;
+        return {
+          ...a,
+          steps: a.steps.map(s =>
+            s.stepId === stepId ? { ...s, logLines: [...lines] } : s
+          ),
+        };
+      };
+      return {
+        analyses: state.analyses.map(updateAnalysis),
+        currentAnalysis: state.currentAnalysis
+          ? updateAnalysis(state.currentAnalysis)
+          : state.currentAnalysis,
+      };
+    });
+  },
+
+  setStepStatus: (analysisId, stepId, status, endTime) => {
+    set(state => {
+      const updateAnalysis = (a: AnalysisRecord): AnalysisRecord => {
+        if (a.id !== analysisId) return a;
+        return {
+          ...a,
+          steps: a.steps.map(s =>
+            s.stepId === stepId
+              ? { ...s, status, endTime: endTime || s.endTime }
+              : s
+          ),
+        };
+      };
+      return {
+        analyses: state.analyses.map(updateAnalysis),
+        currentAnalysis: state.currentAnalysis
+          ? updateAnalysis(state.currentAnalysis)
+          : state.currentAnalysis,
+      };
+    });
+  },
+
+  setCurrentStepIndex: (analysisId, stepIndex) => {
+    set(state => {
+      const updateAnalysis = (a: AnalysisRecord): AnalysisRecord => {
+        if (a.id !== analysisId) return a;
+        return { ...a, currentStep: stepIndex };
+      };
+      return {
+        analyses: state.analyses.map(updateAnalysis),
+        currentAnalysis: state.currentAnalysis
+          ? updateAnalysis(state.currentAnalysis)
+          : state.currentAnalysis,
+      };
+    });
   },
 }));

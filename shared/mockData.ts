@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult, CpgSite, CpgIsland, CpgScanParameters, CpgIslandScanResult, MethylationToggleResult, SequencingQCMetrics } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult, CpgSite, CpgIsland, CpgScanParameters, CpgIslandScanResult, MethylationToggleResult, SequencingQCMetrics, LogLine, LogLevel, AnalysisStep } from './types.js';
 import { DEFAULT_CPG_SCAN_PARAMETERS } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
@@ -39,6 +39,67 @@ const generateQCMetrics = (seed: number): SequencingQCMetrics => {
     coverageDepth: Math.round(coverageDepth * 10) / 10,
     coverageBreadth: Math.round(coverageBreadth * 10) / 10,
     insertSizeMean,
+  };
+};
+
+export const generateStepLogLines = (stepName: string, toolId: string, sampleCount: number, status: string): LogLine[] => {
+  const now = new Date();
+  const lines: LogLine[] = [];
+  const formatTime = (d: Date) => d.toISOString().replace('T', ' ').substring(0, 23);
+
+  const add = (offsetMs: number, level: LogLevel, msg: string) => {
+    const d = new Date(now.getTime() - (status === 'completed' ? 10000 : 0) + offsetMs);
+    lines.push({ timestamp: formatTime(d), level, message: msg });
+  };
+
+  add(0, 'INFO', `========== 步骤启动: ${stepName} ==========`);
+  add(120, 'INFO', `工具版本: ${toolId} 2.14.0`);
+  add(250, 'INFO', `加载输入文件... 共 ${sampleCount} 个样本`);
+  add(580, 'DEBUG', `初始化线程池: 8 线程`);
+  add(900, 'INFO', `[1/5] 读取参考基因组 GRCh38.p14`);
+  add(1400, 'INFO', `[2/5] 索引加载完成, 共 3,099,750,718 bp`);
+  add(2100, 'INFO', `[3/5] 开始执行序列比对算法`);
+
+  for (let i = 1; i <= sampleCount; i++) {
+    const t = 2500 + i * 450;
+    add(t, 'INFO', `  处理样本 SAMPLE_${String(i).padStart(3, '0')}: ${(Math.random() * 30 + 60).toFixed(1)}% reads 已比对`);
+    if (i === 2 && Math.random() > 0.5) {
+      add(t + 80, 'WARN', `  SAMPLE_${String(i).padStart(3, '0')}: 检测到低质量区域, 已自动过滤 2.3% reads`);
+    }
+  }
+
+  add(2500 + sampleCount * 450 + 300, 'DEBUG', `内存峰值: ${(Math.random() * 8 + 12).toFixed(1)} GB`);
+  add(2500 + sampleCount * 450 + 650, 'INFO', `[4/5] 写入输出文件 output_${toolId}_result.bam`);
+  add(2500 + sampleCount * 450 + 980, 'INFO', `[5/5] 生成索引文件 .bai`);
+
+  if (status === 'completed') {
+    add(2500 + sampleCount * 450 + 1300, 'SUCCESS', `✅ 步骤完成: ${(Math.random() * 5 + 94).toFixed(2)}% 比对率, 耗时 ${(Math.random() * 3 + 1).toFixed(1)} 分钟`);
+  } else if (status === 'running') {
+    add(2500 + sampleCount * 450 + 1300, 'INFO', `⏳ 正在执行中, 当前进度 78%...`);
+  } else if (status === 'failed') {
+    add(2500 + sampleCount * 450 + 1300, 'ERROR', `❌ 执行失败: 参考基因组索引不完整, 请重新构建`);
+  }
+
+  return lines;
+};
+
+const ensureStepLogLines = (step: AnalysisStep, sampleCount = 5): AnalysisStep => {
+  if (step.logLines && step.logLines.length > 0) return step;
+  return {
+    ...step,
+    logLines: generateStepLogLines(step.stepName, step.toolId, sampleCount, step.status),
+  };
+};
+
+export const ensureAnalysisLogLines = (analysis: AnalysisRecord): AnalysisRecord => {
+  const count = analysis.sampleIds?.length || 5;
+  return {
+    ...analysis,
+    steps: analysis.steps.map(s => ensureStepLogLines(s, count)),
+    versionHistory: analysis.versionHistory?.map(vh => ({
+      ...vh,
+      steps: vh.steps.map(s => ensureStepLogLines(s, count)),
+    })) || [],
   };
 };
 

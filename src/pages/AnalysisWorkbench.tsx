@@ -5,13 +5,16 @@ import {
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import StatusBadge from '@/components/StatusBadge';
+import StepLogPanel from '@/components/StepLogPanel';
 import DAGCanvas from '@/components/DAGCanvas/DAGCanvas';
 import ToolPalette from '@/components/DAGCanvas/ToolPalette';
 import NodePropertyPanel from '@/components/DAGCanvas/NodePropertyPanel';
 import { createNode } from '@/components/DAGCanvas/DAGCanvas';
-import type { WorkflowGraph, WorkflowNode, WorkflowEdge, AlignmentTool, AnalysisStep, AnalysisRecord, AlignmentResult, WorkflowTemplate } from '@shared/types';
+import type { WorkflowGraph, WorkflowNode, WorkflowEdge, AlignmentTool, AnalysisStep, AnalysisRecord, AlignmentResult, WorkflowTemplate, LogLine } from '@shared/types';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 import { TEMPLATE_CATEGORY_LABELS } from '@shared/types';
+
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function createInitialGraph(): WorkflowGraph {
   const inputNode = createNode('input', { x: 60, y: 200 });
@@ -90,6 +93,7 @@ export default function AnalysisWorkbench() {
     saveAnalysisTemplate, loading, error,
     fetchTemplates, fetchPopularTemplates, fetchFavorites,
     useTemplate, toggleFavorite, clearPendingTemplate,
+    appendStepLog, appendStepLogs, setStepStatus, setCurrentStepIndex, initStepLogLines,
   } = useAnalysisStore();
 
   const [analysisName, setAnalysisName] = useState('');
@@ -198,6 +202,15 @@ export default function AnalysisWorkbench() {
 
     const sortedNodes = topologicalSort(graph);
     const toolSteps = sortedNodes.filter(n => n.type === 'tool');
+    const sampleCount = selectedSampleIds.length;
+
+    const now = new Date();
+    const formatTime = (d: Date) => d.toISOString().replace('T', ' ').substring(0, 23);
+    const makeLine = (ts: Date, level: 'INFO' | 'WARN' | 'ERROR' | 'DEBUG' | 'SUCCESS', msg: string) => ({
+      timestamp: formatTime(ts),
+      level,
+      message: msg,
+    });
 
     const analysisData: Partial<AnalysisRecord> = {
       name: analysisName,
@@ -206,7 +219,7 @@ export default function AnalysisWorkbench() {
       batchId: selectedBatchId || undefined,
       sampleIds: selectedSampleIds,
       status: 'running',
-      startedAt: new Date().toISOString(),
+      startedAt: now.toISOString(),
       steps: toolSteps.map((node, idx) => {
         const tool = ALIGNMENT_TOOLS.find(t => t.id === node.toolId);
         return {
@@ -215,12 +228,13 @@ export default function AnalysisWorkbench() {
           toolId: node.toolId as AlignmentTool,
           toolVersion: tool?.version || '1.0',
           parameters: node.parameters || {},
-          startTime: new Date(Date.now() + idx * 60000).toISOString(),
+          startTime: new Date(now.getTime() + idx * 5000).toISOString(),
           endTime: '',
           status: idx === 0 ? 'running' : 'pending',
           inputFileIds: [],
           outputFileIds: [],
-          log: idx === 0 ? '分析进行中...' : '',
+          log: idx === 0 ? '准备执行...' : '',
+          logLines: [] as LogLine[],
         } as AnalysisStep;
       }),
       parametersSnapshot: {
@@ -239,9 +253,64 @@ export default function AnalysisWorkbench() {
     };
 
     const newAnalysis = await createAnalysis(analysisData);
+    const aid = newAnalysis.id;
+    setCurrentStepIndex(aid, 0);
+
+    const smallDelay = () => delay(220 + Math.random() * 180);
 
     for (let i = 0; i < toolSteps.length; i++) {
       const step = toolSteps[i];
+      const sid = step.id;
+      const tool = ALIGNMENT_TOOLS.find(t => t.id === step.toolId);
+      const stepName = step.label || tool?.name || `步骤${i + 1}`;
+      const stepStartTs = new Date();
+
+      setCurrentStepIndex(aid, i + 1);
+      setStepStatus(aid, sid, 'running');
+      initStepLogLines(aid, sid, []);
+
+      appendStepLog(aid, sid, makeLine(stepStartTs, 'INFO', `========== 步骤 ${i + 1} 启动: ${stepName} ==========`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `工具 ID: ${step.toolId}    版本: ${tool?.version || '1.0.0'}`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `加载输入文件... 共 ${sampleCount} 个样本, 线程数: 8`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'DEBUG', `初始化线程池: worker_0 ~ worker_7 就绪`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `[1/5] 读取参考基因组 GRCh38.p14 (3,099,750,718 bp)`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `[2/5] 索引加载完成, 共 195 条 contig`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `[3/5] 开始执行 ${step.toolId?.toUpperCase()} 核心算法`));
+      await smallDelay();
+
+      for (let s = 1; s <= sampleCount; s++) {
+        const sampleName = `SAMPLE_${String(s).padStart(3, '0')}`;
+        const alignRate = (60 + Math.random() * 38).toFixed(1);
+        appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `  → 处理 ${sampleName}: ${alignRate}% reads 已比对到参考序列`));
+        if (s === 2 && Math.random() > 0.4) {
+          appendStepLog(aid, sid, makeLine(new Date(), 'WARN', `  ⚠ ${sampleName}: 检测到低质量区域, 自动过滤 ${(Math.random() * 3 + 0.5).toFixed(1)}% reads`));
+        }
+        if (s === 4 && Math.random() > 0.7) {
+          appendStepLog(aid, sid, makeLine(new Date(), 'WARN', `  ⚠ ${sampleName}: 插入片段分布偏度 1.42, 建议复核文库质量`));
+        }
+        await smallDelay();
+      }
+
+      appendStepLog(aid, sid, makeLine(new Date(), 'DEBUG', `内存峰值: ${(Math.random() * 6 + 10).toFixed(1)} GB, CPU 利用率: ${(Math.random() * 20 + 75).toFixed(0)}%`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `[4/5] 写入输出文件 output_${sid}.bam (${(Math.random() * 5 + 1.2).toFixed(2)} GB)`));
+      await smallDelay();
+      appendStepLog(aid, sid, makeLine(new Date(), 'INFO', `[5/5] 构建 BAM 索引 .bai 完成`));
+      await smallDelay();
+
+      const finalRate = (94 + Math.random() * 5).toFixed(2);
+      const stepEndTs = new Date();
+      const minutes = ((stepEndTs.getTime() - stepStartTs.getTime()) / 60000).toFixed(1);
+      appendStepLog(aid, sid, makeLine(stepEndTs, 'SUCCESS', `✅ 步骤 ${i + 1} 完成: 比对率 ${finalRate}%, 平均质量 Q${(30 + Math.random() * 8).toFixed(0)}, 耗时 ${minutes} 分钟`));
+
+      setStepStatus(aid, sid, 'completed', stepEndTs.toISOString());
+
       if (step.toolId && step.parameters) {
         await runAlignment(step.toolId, step.parameters, selectedSampleIds);
       }
@@ -517,49 +586,76 @@ export default function AnalysisWorkbench() {
               onClose={() => setSelectedNodeId(null)}
             />
           </div>
-
-          {currentAnalysis && (
-            <div className="card p-5">
-              <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-                <Clock size={20} className="text-primary-400" />
-                当前分析状态
-              </h3>
-              <div className="space-y-3">
-                <div>
-                  <p className="text-sm text-slate-400 mb-1">分析名称</p>
-                  <p className="font-medium text-white text-sm truncate">{currentAnalysis.name}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400 mb-1">状态</p>
-                  <StatusBadge status={currentAnalysis.status} />
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400 mb-1">版本</p>
-                  <p className="font-medium text-white text-sm">v{currentAnalysis.version}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-slate-400 mb-1">步骤进度</p>
-                  <p className="font-medium text-white text-sm">
-                    {currentAnalysis.currentStep}/{currentAnalysis.steps.length}
-                  </p>
-                </div>
-                <div>
-                  <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-primary-500 to-primary-400 rounded-full transition-all duration-500"
-                      style={{
-                        width: `${currentAnalysis.steps.length > 0
-                          ? (currentAnalysis.currentStep / currentAnalysis.steps.length) * 100
-                          : 0}%`,
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       </div>
+
+      {currentAnalysis && currentAnalysis.steps.length > 0 && (
+        <div className="card p-5">
+          <div className="flex items-start justify-between mb-5 gap-4 flex-wrap">
+            <div className="flex items-start gap-4">
+              <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-500/20 to-primary-600/10 border border-primary-500/20 flex items-center justify-center flex-shrink-0">
+                <Clock size={22} className="text-primary-400" />
+              </div>
+              <div className="min-w-0">
+                <h3 className="text-lg font-semibold text-white mb-1">分析执行状态</h3>
+                <p className="text-sm text-slate-400 truncate max-w-xl">{currentAnalysis.name}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="text-center">
+                <p className="text-xs text-slate-500 mb-1">状态</p>
+                <StatusBadge status={currentAnalysis.status} />
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-slate-500 mb-1">版本</p>
+                <p className="text-sm font-medium text-white">v{currentAnalysis.version}</p>
+              </div>
+              <div className="text-center">
+                <p className="text-xs text-slate-500 mb-1">步骤进度</p>
+                <p className="text-sm font-medium text-white">
+                  {currentAnalysis.currentStep}/{currentAnalysis.steps.length}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mb-6">
+            <div className="flex items-center justify-between mb-2 text-xs">
+              <span className="text-slate-500">整体进度</span>
+              <span className="text-slate-400 font-mono">
+                {currentAnalysis.steps.length > 0
+                  ? Math.round((currentAnalysis.currentStep / currentAnalysis.steps.length) * 100)
+                  : 0}%
+              </span>
+            </div>
+            <div className="h-2 bg-slate-700 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-gradient-to-r from-primary-500 to-primary-400 rounded-full transition-all duration-500"
+                style={{
+                  width: `${currentAnalysis.steps.length > 0
+                    ? (currentAnalysis.currentStep / currentAnalysis.steps.length) * 100
+                    : 0}%`,
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            {currentAnalysis.steps.map((step, idx) => (
+              <StepLogPanel
+                key={step.stepId}
+                stepId={step.stepId}
+                stepName={`${idx + 1}. ${step.stepName}`}
+                toolId={step.toolId}
+                status={step.status}
+                logLines={step.logLines || []}
+                defaultCollapsed={step.status === 'pending'}
+                autoScroll={step.status === 'running'}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="card p-5">
         <h2 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
