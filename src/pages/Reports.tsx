@@ -3,11 +3,13 @@ import {
   FileText, Download, Plus, Search, Filter, Eye, RefreshCw,
   Calendar, User, GitBranch, Clock, CheckCircle, AlertCircle,
   Settings, Terminal, Hash, ChevronRight, X, Copy, Check,
-  BarChart3, Table, Code, FileJson, Printer, Share2
+  BarChart3, Table, Code, FileJson, Printer, Share2, Pencil,
+  Quote as QuoteIcon, Image as ImageIcon
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import StatusBadge from '@/components/StatusBadge';
 import type { AnalysisReport, AnalysisRecord, ReportSection } from '@shared/types';
+import ReportEditor from '@/components/ReportEditor';
 
 export default function Reports() {
   const {
@@ -22,6 +24,7 @@ export default function Reports() {
   const [showGenerateModal, setShowGenerateModal] = useState(false);
   const [selectedAnalysisId, setSelectedAnalysisId] = useState('');
   const [copiedField, setCopiedField] = useState<string | null>(null);
+  const [editingReport, setEditingReport] = useState<AnalysisReport | null>(null);
 
   useEffect(() => {
     fetchProjects();
@@ -70,10 +73,17 @@ export default function Reports() {
   };
 
   const handleDownloadReport = (report: AnalysisReport) => {
+    const stripHtml = (html: string) => {
+      if (!/<[a-z][\s\S]*>/i.test(html)) return html;
+      const tmp = document.createElement('div');
+      tmp.innerHTML = html;
+      return tmp.textContent || tmp.innerText || html;
+    };
+
     const content = `# ${report.title}\n\n生成时间: ${formatDate(report.generatedAt)}\n生成者: ${report.generatedBy}\n\n---\n\n` +
       report.sections.map(s => {
         if (s.type === 'text') {
-          return `## ${s.title}\n\n${s.content}\n`;
+          return `## ${s.title}\n\n${stripHtml(s.content as string)}\n`;
         } else if (s.type === 'table') {
           const rows = s.content as Record<string, unknown>[];
           if (rows.length === 0) return `## ${s.title}\n\n无数据\n`;
@@ -85,6 +95,11 @@ export default function Reports() {
           return `## ${s.title}\n\n${Object.entries(data).map(([k, v]) => `- ${k}: ${v}`).join('\n')}\n`;
         } else if (s.type === 'code') {
           return `## ${s.title}\n\n\`\`\`json\n${s.content}\n\`\`\`\n`;
+        } else if (s.type === 'image') {
+          const img = s.content as { url: string; alt: string; caption: string };
+          return `## ${s.title}\n\n![${img.alt || '图片'}](${img.url})\n\n${img.caption || ''}\n`;
+        } else if (s.type === 'quote') {
+          return `## ${s.title}\n\n> ${(s.content as string).split('\n').join('\n> ')}\n`;
         }
         return `## ${s.title}\n\n${JSON.stringify(s.content, null, 2)}\n`;
       }).join('\n---\n\n') +
@@ -177,6 +192,7 @@ export default function Reports() {
           copyToClipboard={copyToClipboard}
           copiedField={copiedField}
           formatDate={formatDate}
+          onEdit={() => setEditingReport(selectedReport)}
         />
       ) : (
         <div className="grid grid-cols-3 gap-4">
@@ -223,6 +239,13 @@ export default function Reports() {
           loading={loading}
         />
       )}
+
+      {editingReport && (
+        <ReportEditor
+          report={useAnalysisStore.getState().reports.find(r => r.id === editingReport.id) || editingReport}
+          onClose={() => setEditingReport(null)}
+        />
+      )}
     </div>
   );
 }
@@ -242,7 +265,8 @@ function ReportCard({ report, analysis, getProjectName, formatDate, onView, onDo
     table: Table,
     chart: BarChart3,
     code: Code,
-    image: FileJson,
+    image: ImageIcon,
+    quote: QuoteIcon,
   };
 
   return (
@@ -314,10 +338,11 @@ interface ReportDetailViewProps {
   copyToClipboard: (text: string, fieldId: string) => void;
   copiedField: string | null;
   formatDate: (date: string) => string;
+  onEdit: () => void;
 }
 
 function ReportDetailView({
-  report, analysis, onBack, getProjectName, copyToClipboard, copiedField, formatDate
+  report, analysis, onBack, getProjectName, copyToClipboard, copiedField, formatDate, onEdit
 }: ReportDetailViewProps) {
   const handlePrint = () => {
     window.print();
@@ -358,13 +383,23 @@ function ReportDetailView({
 
   const renderSection = (section: ReportSection) => {
     switch (section.type) {
-      case 'text':
+      case 'text': {
+        const content = section.content as string;
+        const hasHtml = content && /<[a-z][\s\S]*>/i.test(content);
         return (
-          <div className="prose prose-invert max-w-none">
-            <p className="text-slate-300 leading-relaxed">{section.content as string}</p>
-          </div>
+          <div
+            className="prose prose-invert max-w-none
+              prose-headings:text-white prose-headings:font-bold prose-h1:text-2xl prose-h2:text-xl prose-h3:text-lg
+              prose-p:text-slate-300 prose-p:leading-relaxed prose-p:my-3
+              prose-strong:text-white prose-em:text-slate-300
+              prose-ul:text-slate-300 prose-ol:text-slate-300 prose-li:marker:text-primary-400
+              prose-blockquote:border-l-4 prose-blockquote:border-primary-500 prose-blockquote:bg-slate-800/50 prose-blockquote:text-slate-300 prose-blockquote:italic prose-blockquote:rounded-r-lg prose-blockquote:not-italic
+              prose-a:text-primary-400 prose-a:no-underline hover:prose-a:underline"
+            dangerouslySetInnerHTML={hasHtml ? { __html: content } : { __html: `<p>${content.replace(/\n/g, '</p><p>')}</p>` }}
+          />
         );
-      case 'table':
+      }
+      case 'table': {
         const tableData = section.content as Record<string, unknown>[];
         if (!Array.isArray(tableData) || tableData.length === 0) {
           return <p className="text-slate-500">暂无数据</p>;
@@ -392,26 +427,31 @@ function ReportDetailView({
             </table>
           </div>
         );
-      case 'chart':
+      }
+      case 'chart': {
         const chartData = section.content as Record<string, number>;
+        const entries = Object.entries(chartData);
+        if (entries.length === 0) return <p className="text-slate-500">暂无数据</p>;
+        const maxVal = Math.max(...entries.map(([, v]) => v), 1);
         return (
-          <div className="flex items-end gap-4 h-48">
-            {Object.entries(chartData).map(([key, value]) => (
+          <div className="flex items-end gap-4 h-48 p-4 bg-slate-900/30 rounded-xl">
+            {entries.map(([key, value]) => (
               <div key={key} className="flex-1 flex flex-col items-center gap-2">
                 <div
                   className="w-full bg-gradient-to-t from-primary-600 to-primary-400 rounded-t-lg transition-all"
-                  style={{ height: `${Math.min(100, (value / Math.max(...Object.values(chartData))) * 100)}%` }}
+                  style={{ height: `${Math.min(100, (value / maxVal) * 100)}%`, minHeight: '4px' }}
                 />
                 <span className="text-sm font-medium text-white">{value.toLocaleString()}</span>
-                <span className="text-xs text-slate-500">{key}</span>
+                <span className="text-xs text-slate-500 text-center">{key}</span>
               </div>
             ))}
           </div>
         );
+      }
       case 'code':
         return (
           <div className="relative">
-            <pre className="p-4 bg-slate-950/70 rounded-xl text-sm text-slate-300 font-mono overflow-x-auto">
+            <pre className="p-4 bg-slate-950/70 rounded-xl text-sm text-slate-300 font-mono overflow-x-auto whitespace-pre-wrap">
               {section.content as string}
             </pre>
             <button
@@ -421,6 +461,39 @@ function ReportDetailView({
               {copiedField === `section-${section.id}` ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} className="text-slate-400" />}
             </button>
           </div>
+        );
+      case 'image': {
+        const imgData = section.content as { url: string; alt: string; caption: string };
+        return (
+          <div className="space-y-2">
+            {imgData?.url ? (
+              <div className="rounded-xl overflow-hidden border border-slate-700/50">
+                <img
+                  src={imgData.url}
+                  alt={imgData.alt || ''}
+                  className="w-full max-h-[500px] object-contain bg-slate-900/50"
+                />
+              </div>
+            ) : (
+              <div className="rounded-xl border-2 border-dashed border-slate-600 p-12 text-center">
+                <ImageIcon size={40} className="mx-auto text-slate-600 mb-2" />
+                <p className="text-slate-500">暂无图片</p>
+              </div>
+            )}
+            {imgData?.caption && (
+              <p className="text-center text-sm text-slate-400 italic">{imgData.caption}</p>
+            )}
+          </div>
+        );
+      }
+      case 'quote':
+        return (
+          <blockquote className="border-l-4 border-primary-500 pl-5 py-2 bg-slate-800/40 rounded-r-xl">
+            <QuoteIcon size={20} className="text-primary-500 mb-2 opacity-60" />
+            <p className="text-slate-300 italic leading-relaxed whitespace-pre-wrap">
+              {section.content as string}
+            </p>
+          </blockquote>
         );
       default:
         return <p className="text-slate-500">{String(section.content)}</p>;
@@ -451,6 +524,10 @@ function ReportDetailView({
           </div>
         </div>
         <div className="flex items-center gap-2">
+          <button className="btn-secondary flex items-center gap-2" onClick={onEdit}>
+            <Pencil size={16} />
+            编辑报告
+          </button>
           <button className="btn-secondary flex items-center gap-2" onClick={handlePrint}>
             <Printer size={16} />
             打印

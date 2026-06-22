@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult, WorkflowTemplate, WorkflowGraph, ShareLink, TemplateCategory } from '@shared/types';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AlignmentTool, AnalysisReport, AnalysisVersionHistory, BlastDotPlotData, ClustalAlignmentData, GcSlidingWindowResult, CodonPreferenceResult, OrfPredictionResult, DigestionResult, PrimerDesignResult, PrimerConstraints, PrimerMetrics, CpgIslandScanResult, CpgScanParameters, MethylationToggleResult, WorkflowTemplate, WorkflowGraph, ShareLink, TemplateCategory, ReportSection, ReportSectionType } from '@shared/types';
 import { MOCK_PROJECTS, MOCK_BATCHES, MOCK_SAMPLES, MOCK_ANALYSES, MOCK_VARIANTS, MOCK_REPORTS, generateAlignmentResult, generateBlastDotPlotData, generateClustalAlignmentData, computeGcSlidingWindow, computeCodonPreference, predictOrfs, digestSequence, RESTRICTION_ENZYMES, designPrimers, DEFAULT_PRIMER_CONSTRAINTS, computePrimerMetrics, scanCpgIslands, toggleMethylation, batchToggleMethylation } from '@shared/mockData';
 import { ALIGNMENT_TOOLS } from '@shared/toolConfigs';
 import { BUILT_IN_TEMPLATES } from '@shared/workflowTemplates';
@@ -116,6 +116,12 @@ interface AnalysisActions {
   setCurrentTemplate: (template: WorkflowTemplate | null) => void;
   setPendingTemplate: (graph: WorkflowGraph | null, name?: string | null) => void;
   clearPendingTemplate: () => void;
+  updateReportTitle: (reportId: string, title: string) => Promise<void>;
+  updateReportSection: (reportId: string, sectionId: string, data: Partial<ReportSection>) => Promise<void>;
+  reorderReportSections: (reportId: string, fromIndex: number, toIndex: number) => Promise<void>;
+  addReportSection: (reportId: string, type: ReportSectionType, insertIndex?: number) => Promise<void>;
+  deleteReportSection: (reportId: string, sectionId: string) => Promise<void>;
+  updateReport: (reportId: string, data: Partial<AnalysisReport>) => Promise<void>;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -1204,4 +1210,128 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   setCurrentTemplate: (template) => set({ currentTemplate: template }),
   setPendingTemplate: (graph, name = null) => set({ pendingTemplateGraph: graph, pendingTemplateName: name }),
   clearPendingTemplate: () => set({ pendingTemplateGraph: null, pendingTemplateName: null }),
+
+  updateReportTitle: async (reportId, title) => {
+    set({ loading: true });
+    await delay(100);
+    set(state => ({
+      reports: state.reports.map(r =>
+        r.id === reportId ? { ...r, title } : r
+      ),
+      loading: false,
+    }));
+  },
+
+  updateReportSection: async (reportId, sectionId, data) => {
+    set({ loading: true });
+    await delay(100);
+    set(state => ({
+      reports: state.reports.map(r =>
+        r.id === reportId
+          ? {
+              ...r,
+              sections: r.sections.map(s =>
+                s.id === sectionId ? { ...s, ...data } : s
+              ),
+            }
+          : r
+      ),
+      loading: false,
+    }));
+  },
+
+  reorderReportSections: async (reportId, fromIndex, toIndex) => {
+    set({ loading: true });
+    await delay(100);
+    set(state => ({
+      reports: state.reports.map(r => {
+        if (r.id !== reportId) return r;
+        const sections = [...r.sections];
+        const [removed] = sections.splice(fromIndex, 1);
+        sections.splice(toIndex, 0, removed);
+        return { ...r, sections };
+      }),
+      loading: false,
+    }));
+  },
+
+  addReportSection: async (reportId, type, insertIndex) => {
+    set({ loading: true });
+    await delay(100);
+    const newId = `sec_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    let defaultContent: unknown;
+    let defaultTitle = '';
+    switch (type) {
+      case 'text':
+        defaultContent = '<p>在这里输入文本内容...</p>';
+        defaultTitle = '新建文本章节';
+        break;
+      case 'table':
+        defaultContent = [
+          { 列1: '示例值1', 列2: '示例值2', 列3: '示例值3' },
+          { 列1: '示例值4', 列2: '示例值5', 列3: '示例值6' },
+        ];
+        defaultTitle = '新建表格章节';
+        break;
+      case 'chart':
+        defaultContent = { 类别A: 30, 类别B: 50, 类别C: 20 };
+        defaultTitle = '新建图表章节';
+        break;
+      case 'code':
+        defaultContent = '// 在此处粘贴代码\nfunction example() {\n  return "Hello World";\n}';
+        defaultTitle = '新建代码章节';
+        break;
+      case 'image':
+        defaultContent = { url: '', alt: '图片描述', caption: '' };
+        defaultTitle = '新建图片章节';
+        break;
+      case 'quote':
+        defaultContent = '在这里输入引用内容...';
+        defaultTitle = '新建引用章节';
+        break;
+    }
+    const newSection: ReportSection = {
+      id: newId,
+      title: defaultTitle,
+      type,
+      content: defaultContent,
+    };
+    set(state => ({
+      reports: state.reports.map(r => {
+        if (r.id !== reportId) return r;
+        const sections = [...r.sections];
+        if (insertIndex !== undefined && insertIndex >= 0) {
+          sections.splice(insertIndex, 0, newSection);
+        } else {
+          sections.push(newSection);
+        }
+        return { ...r, sections };
+      }),
+      loading: false,
+    }));
+  },
+
+  deleteReportSection: async (reportId, sectionId) => {
+    set({ loading: true });
+    await delay(100);
+    set(state => ({
+      reports: state.reports.map(r =>
+        r.id === reportId
+          ? { ...r, sections: r.sections.filter(s => s.id !== sectionId) }
+          : r
+      ),
+      loading: false,
+    }));
+  },
+
+  updateReport: async (reportId, data) => {
+    set({ loading: true });
+    await delay(100);
+    set(state => ({
+      reports: state.reports.map(r =>
+        r.id === reportId ? { ...r, ...data } : r
+      ),
+      loading: false,
+    }));
+  },
 }));

@@ -189,10 +189,12 @@ export interface ReportTemplate {
   sections: ReportSection[];
 }
 
+export type ReportSectionType = 'text' | 'table' | 'chart' | 'code' | 'image' | 'quote';
+
 export interface ReportSection {
   id: string;
   title: string;
-  type: 'text' | 'table' | 'chart' | 'code' | 'image';
+  type: ReportSectionType;
   content: unknown;
 }
 
