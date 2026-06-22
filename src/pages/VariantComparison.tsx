@@ -6,6 +6,7 @@ import {
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import type { Variant, VariantType, VariantEffect } from '@shared/types';
 import InteractiveSetChart from '@/components/InteractiveSetChart';
+import ChromosomeKaryotype, { type VariantWithSample } from '@/components/ChromosomeKaryotype';
 import { computeSubsets, setSampleNameResolver, type SubsetInfo } from '@/utils/setOperations';
 
 interface ComparisonResult {
@@ -241,6 +242,31 @@ export default function VariantComparison() {
         uniqueCount={stats.unique}
         pathogenicCount={stats.pathogenic}
       />
+
+      {selectedSampleIds.length >= 2 && comparisonResults.length > 0 && (
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                染色体核型图
+                <span className="badge bg-primary-500/20 text-primary-400 text-xs border border-primary-500/30">
+                  {filteredResults.length} 个变异位点
+                </span>
+              </h2>
+              <p className="text-sm text-slate-400 mt-1">悬停查看变异详情，点击可选中变异位点</p>
+            </div>
+          </div>
+          <ChromosomeKaryotype
+            variants={filteredResults.map((r) => ({
+              ...r.variant,
+              sampleName: r.sharedBy.map(getSampleName).join(', '),
+            })) as VariantWithSample[]}
+            height={540}
+            onVariantClick={(v) => setSelectedVariant(v)}
+            selectedVariantId={selectedVariant?.id || null}
+          />
+        </div>
+      )}
 
       <div className="grid grid-cols-12 gap-6">
         <div className="col-span-3 space-y-6">
