@@ -68,7 +68,7 @@ export function computeSubsets(
 
   results.forEach((r) => {
     let mask = 0;
-    r.sharedBy.forEach((sid) => {
+    r.sharedBy.forEach((sid: string) => {
       const idx = idToIndex.get(sid);
       if (idx !== undefined) mask |= 1 << idx;
     });

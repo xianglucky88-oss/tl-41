@@ -1,4 +1,4 @@
-import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult, CpgSite, CpgIsland, CpgScanParameters, CpgIslandScanResult, MethylationToggleResult } from './types.js';
+import type { Project, Batch, Sample, AnalysisRecord, Variant, AlignmentResult, AnalysisReport, BlastDotPlotData, BlastHSP, ClustalAlignmentData, ClustalAlignedSequence, ClustalColumnInfo, GcSlidingWindowResult, CodonPreferenceResult, CodonPositionBaseFrequency, RscuEntry, OrfPredictionResult, OrfRecord, RestrictionEnzyme, CutSite, DigestionFragment, DigestionResult, PrimerConstraints, PrimerMetrics, Primer, PrimerPair, PrimerDesignResult, CpgSite, CpgIsland, CpgScanParameters, CpgIslandScanResult, MethylationToggleResult, SequencingQCMetrics } from './types.js';
 import { DEFAULT_CPG_SCAN_PARAMETERS } from './types.js';
 
 const generateId = (prefix: string) => `${prefix}_${Math.random().toString(36).substring(2, 10)}`;
@@ -10,6 +10,36 @@ const generateDnaSequence = (length: number): string => {
     seq += bases[Math.floor(Math.random() * 4)];
   }
   return seq;
+};
+
+const generateQCMetrics = (seed: number): SequencingQCMetrics => {
+  const randomInRange = (min: number, max: number) => min + (Math.sin(seed * 9301 + 49297) * 0.5 + 0.5) * (max - min);
+  const q20 = randomInRange(88, 98);
+  const q30 = randomInRange(82, 94);
+  const gcContent = randomInRange(38, 52);
+  const adapterRate = randomInRange(0.1, 3.5);
+  const duplicationRate = randomInRange(1, 18);
+  const contaminationRate = randomInRange(0.05, 2);
+  const totalReads = Math.floor(randomInRange(5, 30) * 1000000);
+  const mappingRate = randomInRange(92, 99.5);
+  const mappedReads = Math.floor(totalReads * mappingRate / 100);
+  const coverageDepth = randomInRange(15, 80);
+  const coverageBreadth = randomInRange(96, 99.9);
+  const insertSizeMean = Math.floor(randomInRange(150, 400));
+  return {
+    q20Bases: Math.round(q20 * 100) / 100,
+    q30Bases: Math.round(q30 * 100) / 100,
+    gcContent: Math.round(gcContent * 100) / 100,
+    adapterRate: Math.round(adapterRate * 100) / 100,
+    duplicationRate: Math.round(duplicationRate * 100) / 100,
+    contaminationRate: Math.round(contaminationRate * 100) / 100,
+    totalReads,
+    mappedReads,
+    mappingRate: Math.round(mappingRate * 100) / 100,
+    coverageDepth: Math.round(coverageDepth * 10) / 10,
+    coverageBreadth: Math.round(coverageBreadth * 10) / 10,
+    insertSizeMean,
+  };
 };
 
 export const MOCK_PROJECTS: Project[] = [
@@ -176,6 +206,7 @@ export const MOCK_SAMPLES: Sample[] = sampleNames.map((name, idx) => {
       'concentration': `${50 + Math.floor(Math.random() * 100)}ng/μL`,
       'volume': `${20 + Math.floor(Math.random() * 30)}μL`,
     },
+    qcMetrics: generateQCMetrics(idx + 1),
   };
 });
 

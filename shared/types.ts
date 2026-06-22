@@ -24,6 +24,21 @@ export interface AlignmentToolConfig {
   version: string;
 }
 
+export interface SequencingQCMetrics {
+  q20Bases: number;
+  q30Bases: number;
+  gcContent: number;
+  adapterRate: number;
+  duplicationRate: number;
+  contaminationRate: number;
+  totalReads: number;
+  mappedReads: number;
+  mappingRate: number;
+  coverageDepth: number;
+  coverageBreadth: number;
+  insertSizeMean: number;
+}
+
 export interface Sample {
   id: string;
   name: string;
@@ -36,6 +51,7 @@ export interface Sample {
   organism: string;
   createdAt: string;
   metadata: Record<string, string>;
+  qcMetrics?: SequencingQCMetrics;
 }
 
 export interface Batch {

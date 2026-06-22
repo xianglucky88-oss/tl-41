@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
-import { FlaskConical, TestTube, Workflow, GitCompare, TrendingUp, Activity, AlertTriangle, ChevronRight, Zap } from 'lucide-react';
+import { FlaskConical, TestTube, Workflow, GitCompare, TrendingUp, Activity, AlertTriangle, ChevronRight, Zap, BarChart3 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import StatusBadge from '@/components/StatusBadge';
+import QCRadarChart, { type SampleRadarDataSet } from '@/components/QCRadarChart';
 import { Link, useNavigate } from 'react-router-dom';
 
 interface Stats {
@@ -289,6 +290,136 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+
+      {(() => {
+        const COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#f43f5e', '#a855f7', '#14b8a6', '#f97316'];
+        const qcSamples: SampleRadarDataSet[] = samples
+          .filter(s => s.qcMetrics)
+          .slice(0, 6)
+          .map((sample, idx) => ({
+            sampleId: sample.id,
+            sampleName: sample.name,
+            color: COLORS[idx % COLORS.length],
+            metrics: sample.qcMetrics!,
+          }));
+
+        const avgQ20 = samples.length > 0
+          ? samples.filter(s => s.qcMetrics).reduce((sum, s) => sum + (s.qcMetrics?.q20Bases || 0), 0) / Math.max(1, samples.filter(s => s.qcMetrics).length)
+          : 0;
+        const avgQ30 = samples.length > 0
+          ? samples.filter(s => s.qcMetrics).reduce((sum, s) => sum + (s.qcMetrics?.q30Bases || 0), 0) / Math.max(1, samples.filter(s => s.qcMetrics).length)
+          : 0;
+        const avgMapping = samples.length > 0
+          ? samples.filter(s => s.qcMetrics).reduce((sum, s) => sum + (s.qcMetrics?.mappingRate || 0), 0) / Math.max(1, samples.filter(s => s.qcMetrics).length)
+          : 0;
+        const avgCoverage = samples.length > 0
+          ? samples.filter(s => s.qcMetrics).reduce((sum, s) => sum + (s.qcMetrics?.coverageBreadth || 0), 0) / Math.max(1, samples.filter(s => s.qcMetrics).length)
+          : 0;
+
+        const highQCount = samples.filter(s => s.qcMetrics && s.qcMetrics.q30Bases >= 90).length;
+        const warnQCount = samples.filter(s => s.qcMetrics && s.qcMetrics.q30Bases >= 85 && s.qcMetrics.q30Bases < 90).length;
+        const lowQCount = samples.filter(s => s.qcMetrics && s.qcMetrics.q30Bases < 85).length;
+
+        return (
+          <div className="grid grid-cols-3 gap-6">
+            <div className="col-span-2 card p-6">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="section-title mb-0">
+                  <BarChart3 size={24} className="text-accent-500" />
+                  样本测序 QC 指标概览
+                </h2>
+                <Link to="/samples" className="text-accent-400 hover:text-accent-300 text-sm flex items-center gap-1">
+                  查看更多 <ChevronRight size={16} />
+                </Link>
+              </div>
+              <QCRadarChart
+                samples={qcSamples}
+                height={360}
+                showLegend={true}
+                showDataTable={false}
+              />
+            </div>
+
+            <div className="card p-6 space-y-5">
+              <h2 className="section-title">
+                <TestTube size={24} className="text-primary-500" />
+                QC 质量统计
+              </h2>
+
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="bg-slate-800/50 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 mb-1">平均 Q20</p>
+                    <p className="text-xl font-bold text-blue-400">{avgQ20.toFixed(1)}%</p>
+                    <div className="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-400 rounded-full" style={{ width: `${avgQ20}%` }} />
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 mb-1">平均 Q30</p>
+                    <p className="text-xl font-bold text-emerald-400">{avgQ30.toFixed(1)}%</p>
+                    <div className="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-emerald-400 rounded-full" style={{ width: `${avgQ30}%` }} />
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 mb-1">平均比对率</p>
+                    <p className="text-xl font-bold text-primary-400">{avgMapping.toFixed(1)}%</p>
+                    <div className="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-primary-400 rounded-full" style={{ width: `${avgMapping}%` }} />
+                    </div>
+                  </div>
+                  <div className="bg-slate-800/50 rounded-xl p-3">
+                    <p className="text-xs text-slate-500 mb-1">平均覆盖度</p>
+                    <p className="text-xl font-bold text-amber-400">{avgCoverage.toFixed(1)}%</p>
+                    <div className="mt-2 h-1.5 bg-slate-700 rounded-full overflow-hidden">
+                      <div className="h-full bg-amber-400 rounded-full" style={{ width: `${avgCoverage}%` }} />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="pt-3 border-t border-slate-700/50 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-emerald-500" />
+                      <span className="text-sm text-slate-400">优质样本 (Q30 ≥ 90%)</span>
+                    </div>
+                    <span className="text-sm font-medium text-emerald-400">{highQCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-amber-500" />
+                      <span className="text-sm text-slate-400">合格样本 (Q30 ≥ 85%)</span>
+                    </div>
+                    <span className="text-sm font-medium text-amber-400">{warnQCount}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-rose-500" />
+                      <span className="text-sm text-slate-400">待复检样本 (Q30 &lt; 85%)</span>
+                    </div>
+                    <span className="text-sm font-medium text-rose-400">{lowQCount}</span>
+                  </div>
+                </div>
+
+                {lowQCount > 0 && (
+                  <div className="pt-3 border-t border-slate-700/50">
+                    <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-start gap-2">
+                      <AlertTriangle className="text-rose-400 mt-0.5 flex-shrink-0" size={18} />
+                      <div>
+                        <p className="text-sm font-medium text-rose-300">质量预警</p>
+                        <p className="text-xs text-rose-400/80 mt-0.5">
+                          {lowQCount} 个样本 Q30 低于 85%，建议检查测序流程或样本质量
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

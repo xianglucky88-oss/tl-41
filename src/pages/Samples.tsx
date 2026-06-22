@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import {
   TestTube, Search, Filter, Eye, Edit, Trash2, ChevronDown, ChevronUp,
-  Plus, Download, Upload, X, Save, FileText, Play, Zap
+  Plus, Download, Upload, X, Save, FileText, Play, Zap, BarChart3, Table,
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import DnaSequenceViewer from '@/components/DnaSequenceViewer';
+import QCRadarChart, { type SampleRadarDataSet } from '@/components/QCRadarChart';
 import type { Sample } from '@shared/types';
 
 export default function Samples() {
@@ -40,6 +41,8 @@ export default function Samples() {
     organism: 'Homo sapiens',
     sequenceType: 'dna' as 'dna' | 'rna' | 'protein',
   });
+  const [showQCCompare, setShowQCCompare] = useState(false);
+  const [showQCDataTable, setShowQCDataTable] = useState(false);
 
   const filteredSamples = samples.filter(sample => {
     if (searchText && !sample.name.toLowerCase().includes(searchText.toLowerCase())) return false;
@@ -328,6 +331,15 @@ export default function Samples() {
           {selectedSampleIds.length > 0 && (
             <div className="flex items-center gap-2 bg-primary-500/10 border border-primary-500/30 rounded-xl px-4 py-2">
               <span className="text-sm text-primary-400">已选择 {selectedSampleIds.length} 个样本</span>
+              {selectedSampleIds.length >= 1 && (
+                <button
+                  className={`text-sm px-3 py-1 rounded-lg transition-colors flex items-center gap-1 ${showQCCompare ? 'text-white bg-accent-600 hover:bg-accent-500' : 'text-white bg-accent-600/80 hover:bg-accent-500'}`}
+                  onClick={() => setShowQCCompare(!showQCCompare)}
+                >
+                  <BarChart3 size={14} />
+                  {showQCCompare ? '关闭 QC 对比' : 'QC 对比分析'}
+                </button>
+              )}
               <button
                 className="text-sm text-white bg-primary-600 hover:bg-primary-500 px-3 py-1 rounded-lg transition-colors flex items-center gap-1"
                 onClick={handleBatchAnalyze}
@@ -419,6 +431,57 @@ export default function Samples() {
         )}
       </div>
 
+      {showQCCompare && (() => {
+        const COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#f43f5e', '#a855f7', '#14b8a6', '#f97316'];
+        const qcSamples: SampleRadarDataSet[] = filteredSamples
+          .filter(s => selectedSampleIds.includes(s.id) && s.qcMetrics)
+          .slice(0, 8)
+          .map((sample, idx) => ({
+            sampleId: sample.id,
+            sampleName: sample.name,
+            color: COLORS[idx % COLORS.length],
+            metrics: sample.qcMetrics!,
+          }));
+
+        return (
+          <div className="card p-6 border-accent-500/30 bg-accent-500/5">
+            <div className="flex items-center justify-between mb-6">
+              <div>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                  <BarChart3 className="text-accent-500" size={24} />
+                  测序 QC 指标横向对比
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  比较 {qcSamples.length} 个样本的测序质量控制指标
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  className={`btn-secondary flex items-center gap-2 text-sm ${showQCDataTable ? 'ring-2 ring-accent-500/50' : ''}`}
+                  onClick={() => setShowQCDataTable(!showQCDataTable)}
+                >
+                  <Table size={16} />
+                  {showQCDataTable ? '隐藏数据' : '显示数据'}
+                </button>
+                <button
+                  className="p-2 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+                  onClick={() => setShowQCCompare(false)}
+                  title="关闭面板"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+            </div>
+            <QCRadarChart
+              samples={qcSamples}
+              height={420}
+              showLegend={true}
+              showDataTable={showQCDataTable}
+            />
+          </div>
+        );
+      })()}
+
       <div className="card overflow-hidden">
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
           <span className="text-sm text-slate-400">
@@ -432,21 +495,25 @@ export default function Samples() {
           </button>
         </div>
         <div className="divide-y divide-slate-800">
-          {filteredSamples.map((sample) => (
-            <SampleRow
-              key={sample.id}
-              sample={sample}
-              isSelected={selectedSampleIds.includes(sample.id)}
-              isExpanded={expandedSample === sample.id}
-              onSelect={() => toggleSampleSelection(sample.id)}
-              onToggleExpand={() => setExpandedSample(expandedSample === sample.id ? null : sample.id)}
-              onViewDetail={handleViewDetail}
-              onEdit={handleEditSample}
-              onDelete={handleDeleteSample}
-              projectName={getProjectName(sample.projectId)}
-              batchName={getBatchName(sample.batchId)}
-            />
-          ))}
+          {filteredSamples.map((sample, idx) => {
+            const COLORS = ['#6366f1', '#22d3ee', '#f59e0b', '#10b981', '#f43f5e', '#a855f7', '#14b8a6', '#f97316'];
+            return (
+              <SampleRow
+                key={sample.id}
+                sample={sample}
+                isSelected={selectedSampleIds.includes(sample.id)}
+                isExpanded={expandedSample === sample.id}
+                onSelect={() => toggleSampleSelection(sample.id)}
+                onToggleExpand={() => setExpandedSample(expandedSample === sample.id ? null : sample.id)}
+                onViewDetail={handleViewDetail}
+                onEdit={handleEditSample}
+                onDelete={handleDeleteSample}
+                projectName={getProjectName(sample.projectId)}
+                batchName={getBatchName(sample.batchId)}
+                radarColor={COLORS[idx % COLORS.length]}
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -871,9 +938,10 @@ interface SampleRowProps {
   onDelete: (sample: Sample) => void;
   projectName: string;
   batchName: string;
+  radarColor: string;
 }
 
-function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, onViewDetail, onEdit, onDelete, projectName, batchName }: SampleRowProps) {
+function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, onViewDetail, onEdit, onDelete, projectName, batchName, radarColor }: SampleRowProps) {
   return (
     <div className={`transition-colors ${isSelected ? 'bg-primary-500/5' : ''}`}>
       <div className="p-4 flex items-center gap-4 hover:bg-slate-800/30">
@@ -896,6 +964,11 @@ function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, o
               {sample.sequenceType.toUpperCase()}
             </span>
             <span className="text-xs text-slate-500">{sample.organism}</span>
+            {sample.qcMetrics && (
+              <span className={`badge text-xs ${sample.qcMetrics.q30Bases >= 90 ? 'status-completed' : sample.qcMetrics.q30Bases >= 85 ? 'status-pending' : 'status-failed'}`}>
+                Q30: {sample.qcMetrics.q30Bases.toFixed(0)}%
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-4 mt-1 text-xs text-slate-500">
             <span>项目: {projectName}</span>
@@ -939,7 +1012,7 @@ function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, o
 
       {isExpanded && (
         <div className="px-4 pb-4 border-t border-slate-800/50">
-          <div className="pt-4 grid grid-cols-4 gap-6">
+          <div className="pt-4 grid grid-cols-5 gap-6">
             <div className="col-span-3">
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-medium text-slate-300">序列预览</h4>
@@ -950,7 +1023,23 @@ function SampleRow({ sample, isSelected, isExpanded, onSelect, onToggleExpand, o
               <DnaSequenceViewer sequence={sample.sequence.slice(0, 500)} lineLength={100} />
               <p className="text-xs text-slate-500 mt-2">... 显示前500bp，点击查看完整序列</p>
             </div>
-            <div className="space-y-4">
+            <div className="col-span-2 space-y-4">
+              {sample.qcMetrics && (
+                <div>
+                  <h4 className="text-sm font-medium text-slate-300 mb-2">测序 QC 雷达图</h4>
+                  <QCRadarChart
+                    samples={[{
+                      sampleId: sample.id,
+                      sampleName: sample.name,
+                      color: radarColor,
+                      metrics: sample.qcMetrics,
+                    }]}
+                    height={260}
+                    showLegend={false}
+                    showDataTable={false}
+                  />
+                </div>
+              )}
               <div>
                 <h4 className="text-sm font-medium text-slate-400 mb-2">元数据</h4>
                 <div className="space-y-2 text-sm">
