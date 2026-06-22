@@ -160,7 +160,7 @@ export const computeSampleDiffs = (
   }
 
   return diffs.sort((a, b) => {
-    const typeOrder = { added: 0, removed: 1, unchanged: 2 };
+    const typeOrder: Record<DiffChangeType, number> = { added: 0, removed: 1, modified: 2, unchanged: 3 };
     const typeDiff = typeOrder[a.type] - typeOrder[b.type];
     if (typeDiff !== 0) return typeDiff;
     return (a.sampleName || a.sampleId).localeCompare(b.sampleName || b.sampleId);

@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { ChevronDown, ChevronRight, Search, X, Terminal, Copy, Check, Trash2 } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { ChevronDown, ChevronRight, Search, X, Terminal, Copy, Check, RotateCcw, ArrowDown, Circle, Maximize2, Minimize2 } from 'lucide-react';
 import type { LogLine, LogLevel } from '@shared/types';
 
 interface StepLogPanelProps {
@@ -67,9 +67,13 @@ export default function StepLogPanel({
   const [showSearch, setShowSearch] = useState(false);
   const [copied, setCopied] = useState(false);
   const [followTail, setFollowTail] = useState(autoScroll);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevCountRef = useRef(logLines.length);
+  const userScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filteredLines = useMemo(() => {
     const kw = keyword.trim().toLowerCase();
@@ -86,12 +90,72 @@ export default function StepLogPanel({
     return c;
   }, [logLines]);
 
+  const handleScroll = useCallback(() => {
+    if (!scrollRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollRef.current;
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 50;
+
+    if (userScrollingRef.current) {
+      setShowScrollButton(!isNearBottom);
+      if (isNearBottom) {
+        setFollowTail(true);
+        userScrollingRef.current = false;
+      }
+    }
+  }, []);
+
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: 'smooth',
+      });
+    }
+    setFollowTail(true);
+    userScrollingRef.current = false;
+    setShowScrollButton(false);
+  }, []);
+
+  const handleWheel = useCallback(() => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    userScrollingRef.current = true;
+    setFollowTail(false);
+    scrollTimeoutRef.current = setTimeout(() => {
+      handleScroll();
+    }, 150);
+  }, [handleScroll]);
+
   useEffect(() => {
-    if (!collapsed && followTail && logLines.length > prevCountRef.current && scrollRef.current) {
+    if (!collapsed && followTail && logLines.length > prevCountRef.current && scrollRef.current && !userScrollingRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
     prevCountRef.current = logLines.length;
   }, [logLines, collapsed, followTail]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el) {
+      el.addEventListener('wheel', handleWheel, { passive: true });
+      el.addEventListener('touchmove', handleWheel, { passive: true });
+      return () => {
+        el.removeEventListener('wheel', handleWheel);
+        el.removeEventListener('touchmove', handleWheel);
+      };
+    }
+  }, [handleWheel, collapsed]);
+
+  useEffect(() => {
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+    }
+    return () => {
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = async () => {
     const text = logLines.map(l => `[${l.timestamp}] [${l.level}] ${l.message}`).join('\n');
@@ -107,6 +171,7 @@ export default function StepLogPanel({
   const handleClear = () => {
     setKeyword('');
     setLevelFilter('ALL');
+    setShowSearch(false);
   };
 
   const statusDot = status === 'running' ? 'bg-emerald-400 animate-pulse' :
@@ -200,9 +265,16 @@ export default function StepLogPanel({
               <button
                 onClick={handleClear}
                 className="p-1.5 rounded-md text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors"
-                title="清空筛选"
+                title="重置筛选条件"
               >
-                <Trash2 size={14} />
+                <RotateCcw size={14} />
+              </button>
+              <button
+                onClick={() => setIsExpanded(!isExpanded)}
+                className="p-1.5 rounded-md text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors"
+                title={isExpanded ? '恢复默认高度' : '展开日志窗口'}
+              >
+                {isExpanded ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               </button>
             </div>
           </div>
@@ -232,42 +304,89 @@ export default function StepLogPanel({
             </div>
           )}
 
-          <div
-            ref={scrollRef}
-            className="bg-black/60 font-mono text-xs overflow-y-auto p-3 max-h-80"
-            style={{
-              scrollBehavior: followTail ? 'smooth' : 'auto',
-            }}
-          >
-            {filteredLines.length === 0 ? (
-              <div className="text-slate-600 text-center py-8">
-                {keyword || levelFilter !== 'ALL'
-                  ? '没有匹配的日志行'
-                  : '暂无日志输出'}
+          <div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-gradient-to-b from-slate-800/80 to-slate-900/80 border-b border-slate-800">
+              <div className="flex items-center gap-1.5">
+                <Circle size={11} className="text-rose-400 fill-current" />
+                <Circle size={11} className="text-amber-400 fill-current" />
+                <Circle size={11} className="text-emerald-400 fill-current" />
               </div>
-            ) : (
-              <div className="space-y-0.5">
-                {filteredLines.map((line, idx) => {
-                  const style = LEVEL_STYLES[line.level] || LEVEL_STYLES.INFO;
-                  return (
-                    <div
-                      key={`${stepId}-${idx}`}
-                      className="flex items-start gap-2 hover:bg-slate-800/30 px-1 py-0.5 rounded leading-relaxed"
-                    >
-                      <span className="text-slate-600 flex-shrink-0 select-none whitespace-nowrap">
-                        {line.timestamp.substring(11)}
-                      </span>
-                      <span className={`flex items-center justify-center px-1 py-px rounded text-[10px] font-bold flex-shrink-0 w-10 ${style.bg} ${style.text} border border-current/20`}>
-                        {style.label}
-                      </span>
-                      <span className={`flex-1 min-w-0 break-all ${style.text}`}>
-                        {highlightMatch(line.message, keyword)}
-                      </span>
-                    </div>
-                  );
-                })}
+              <span className="text-[10px] text-slate-500 font-mono ml-2 flex-1 truncate">
+                /bin/bash — {toolId || stepName}
+              </span>
+              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${
+                followTail
+                  ? 'bg-emerald-500/15 text-emerald-400'
+                  : 'bg-slate-700/50 text-slate-500'
+              }`}>
+                {followTail ? 'FOLLOWING' : 'PAUSED'}
+              </span>
+            </div>
+
+            <div className="relative">
+              <div
+                ref={scrollRef}
+                onScroll={handleScroll}
+                className={`bg-[#0b1020]/95 font-mono text-xs overflow-y-auto p-3 transition-all duration-300 ${
+                  isExpanded ? 'max-h-[60vh]' : 'max-h-80'
+                }`}
+                style={{
+                  scrollBehavior: followTail ? 'smooth' : 'auto',
+                  backgroundImage:
+                    'linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px)',
+                  backgroundSize: '100% 20px',
+                }}
+              >
+                {filteredLines.length === 0 ? (
+                  <div className="text-slate-600 text-center py-10">
+                    {keyword || levelFilter !== 'ALL'
+                      ? '—— 没有匹配的日志行 ——'
+                      : '$ 等待日志输出...'}
+                  </div>
+                ) : (
+                  <div className="space-y-0.5">
+                    {filteredLines.map((line, idx) => {
+                      const style = LEVEL_STYLES[line.level] || LEVEL_STYLES.INFO;
+                      return (
+                        <div
+                          key={`${stepId}-${idx}`}
+                          className="flex items-start gap-2 hover:bg-white/5 px-1 py-0.5 rounded leading-relaxed group"
+                        >
+                          <span className="text-slate-600 flex-shrink-0 select-none whitespace-nowrap w-[68px] tabular-nums">
+                            {line.timestamp.substring(11)}
+                          </span>
+                          <span className={`flex items-center justify-center px-1.5 py-px rounded text-[10px] font-bold flex-shrink-0 w-[52px] ${style.bg} ${style.text} border border-current/20`}>
+                            {style.label}
+                          </span>
+                          <span className={`flex-1 min-w-0 break-all ${style.text}`}>
+                            {highlightMatch(line.message, keyword)}
+                          </span>
+                          <button
+                            onClick={() => {
+                              navigator.clipboard.writeText(line.message);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 text-slate-600 hover:text-slate-400 transition-opacity flex-shrink-0 p-0.5 -m-0.5"
+                            title="复制此行"
+                          >
+                            <Copy size={11} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            )}
+
+              {showScrollButton && !followTail && (
+                <button
+                  onClick={scrollToBottom}
+                  className="absolute bottom-3 right-3 bg-slate-800/95 hover:bg-primary-600 border border-slate-600 hover:border-primary-500 text-slate-300 hover:text-white rounded-full p-2 shadow-lg shadow-black/40 transition-all group"
+                  title="滚动到最新日志"
+                >
+                  <ArrowDown size={14} className="group-hover:translate-y-0.5 transition-transform" />
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex items-center justify-between px-4 py-1.5 bg-slate-900/80 border-t border-slate-800 text-[11px] text-slate-600 font-mono">
