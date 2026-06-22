@@ -1152,6 +1152,15 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       }
       throw new Error(data.message || '加载模板失败');
     } catch (error) {
+      const template = BUILT_IN_TEMPLATES.find(t => t.id === templateId);
+      if (template) {
+        set({ error: null });
+        return {
+          graph: template.graph,
+          parameters: template.parameters,
+          name: template.name,
+        };
+      }
       set({ error: error instanceof Error ? error.message : '加载模板失败' });
       throw error;
     } finally {
@@ -1164,8 +1173,13 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
     try {
       const res = await fetch(`/api/templates/popular?limit=${limit}`);
       const data = await res.json();
-      if (data.success) {
+      if (data.success && data.data && data.data.length > 0) {
         set({ popularTemplates: data.data });
+      } else {
+        const popular = [...BUILT_IN_TEMPLATES]
+          .sort((a, b) => b.usageCount - a.usageCount)
+          .slice(0, limit);
+        set({ popularTemplates: popular });
       }
     } catch {
       const popular = [...BUILT_IN_TEMPLATES]

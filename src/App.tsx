@@ -14,28 +14,39 @@ import RestrictionEnzymeAnalyzer from './pages/RestrictionEnzymeAnalyzer';
 import PcrPrimerDesigner from './pages/PcrPrimerDesigner';
 import CpgIslandScanner from './pages/CpgIslandScanner';
 import WorkflowTemplates from './pages/WorkflowTemplates';
+import ShareTemplatePage from './pages/ShareTemplatePage';
 
 export default function App() {
   return (
-    <Layout>
+    <>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
-        <Route path="/projects" element={<Projects />} />
-        <Route path="/samples" element={<Samples />} />
-        <Route path="/workbench" element={<AnalysisWorkbench />} />
-        <Route path="/analysis/workbench" element={<AnalysisWorkbench />} />
-        <Route path="/templates" element={<WorkflowTemplates />} />
-        <Route path="/analysis/templates" element={<WorkflowTemplates />} />
-        <Route path="/visualizer" element={<AlignmentVisualizer />} />
-        <Route path="/gc-codon" element={<GcCodonAnalyzer />} />
-        <Route path="/orf-predictor" element={<OrfPredictor />} />
-        <Route path="/restriction-enzyme" element={<RestrictionEnzymeAnalyzer />} />
-        <Route path="/primer-design" element={<PcrPrimerDesigner />} />
-        <Route path="/cpg-island" element={<CpgIslandScanner />} />
-        <Route path="/history" element={<AnalysisHistory />} />
-        <Route path="/variants" element={<VariantComparison />} />
-        <Route path="/reports" element={<Reports />} />
+        <Route path="/share/:code" element={<ShareTemplatePage />} />
+        <Route
+          path="*"
+          element={
+            <Layout>
+              <Routes>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/projects" element={<Projects />} />
+                <Route path="/samples" element={<Samples />} />
+                <Route path="/workbench" element={<AnalysisWorkbench />} />
+                <Route path="/analysis/workbench" element={<AnalysisWorkbench />} />
+                <Route path="/templates" element={<WorkflowTemplates />} />
+                <Route path="/analysis/templates" element={<WorkflowTemplates />} />
+                <Route path="/visualizer" element={<AlignmentVisualizer />} />
+                <Route path="/gc-codon" element={<GcCodonAnalyzer />} />
+                <Route path="/orf-predictor" element={<OrfPredictor />} />
+                <Route path="/restriction-enzyme" element={<RestrictionEnzymeAnalyzer />} />
+                <Route path="/primer-design" element={<PcrPrimerDesigner />} />
+                <Route path="/cpg-island" element={<CpgIslandScanner />} />
+                <Route path="/history" element={<AnalysisHistory />} />
+                <Route path="/variants" element={<VariantComparison />} />
+                <Route path="/reports" element={<Reports />} />
+              </Routes>
+            </Layout>
+          }
+        />
       </Routes>
-    </Layout>
+    </>
   );
 }
