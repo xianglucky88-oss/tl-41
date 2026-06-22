@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   GitCompare, Filter, Search, Eye, Download, Plus, AlertTriangle,
   ChevronDown, ChevronRight, Database, BookOpen, Info, X
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import type { Variant, VariantType, VariantEffect } from '@shared/types';
+import InteractiveSetChart from '@/components/InteractiveSetChart';
+import { computeSubsets, setSampleNameResolver, type SubsetInfo } from '@/utils/setOperations';
 
 interface ComparisonResult {
   key: string;
@@ -56,6 +58,7 @@ export default function VariantComparison() {
   const [showFilters, setShowFilters] = useState(false);
   const [comparisonResults, setComparisonResults] = useState<ComparisonResult[]>([]);
   const [loading, setLoading] = useState(false);
+  const [selectedSubsetId, setSelectedSubsetId] = useState<string | null>(null);
 
   const availableSamples = selectedBatchId
     ? samples.filter(s => s.batchId === selectedBatchId)
@@ -116,8 +119,40 @@ export default function VariantComparison() {
     fetchComparison();
   }, [selectedSampleIds, variants]);
 
+  const getSampleName = (sampleId: string) => samples.find(s => s.id === sampleId)?.name || sampleId;
+
+  useEffect(() => {
+    setSampleNameResolver(getSampleName);
+  }, [samples]);
+
+  const subsets: SubsetInfo[] = useMemo(() => {
+    if (selectedSampleIds.length < 2 || comparisonResults.length === 0) return [];
+    return computeSubsets(comparisonResults, selectedSampleIds);
+  }, [comparisonResults, selectedSampleIds]);
+
+  const selectedSubset: SubsetInfo | undefined = useMemo(() => {
+    if (!selectedSubsetId) return undefined;
+    return subsets.find((s) => s.id === selectedSubsetId);
+  }, [selectedSubsetId, subsets]);
+
+  useEffect(() => {
+    setSelectedSubsetId(null);
+  }, [selectedSampleIds.join('|')]);
+
+  const stats = {
+    total: comparisonResults.length,
+    shared: comparisonResults.filter(r => r.isShared).length,
+    unique: comparisonResults.filter(r => r.isUnique).length,
+    pathogenic: comparisonResults.filter(r => r.variant.clinicalSignificance === 'pathogenic').length,
+  };
+
   const filteredResults = comparisonResults.filter(result => {
     const v = result.variant;
+    if (selectedSubset) {
+      const matches = selectedSubset.sampleIds.length === result.sharedBy.length &&
+        selectedSubset.sampleIds.every(sid => result.sharedBy.includes(sid));
+      if (!matches) return false;
+    }
     if (searchText) {
       const search = searchText.toLowerCase();
       if (!v.gene?.toLowerCase().includes(search) &&
@@ -134,15 +169,6 @@ export default function VariantComparison() {
     if (showUniqueOnly && !result.isUnique) return false;
     return true;
   });
-
-  const getSampleName = (sampleId: string) => samples.find(s => s.id === sampleId)?.name || sampleId;
-
-  const stats = {
-    total: comparisonResults.length,
-    shared: comparisonResults.filter(r => r.isShared).length,
-    unique: comparisonResults.filter(r => r.isUnique).length,
-    pathogenic: comparisonResults.filter(r => r.variant.clinicalSignificance === 'pathogenic').length,
-  };
 
   const handleExportResults = () => {
     if (comparisonResults.length === 0) {
@@ -202,24 +228,17 @@ export default function VariantComparison() {
         </div>
       </div>
 
-      <div className="grid grid-cols-4 gap-4">
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-bold text-white">{stats.total}</p>
-          <p className="text-sm text-slate-400">总变异位点</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-bold text-primary-400">{stats.shared}</p>
-          <p className="text-sm text-slate-400">共有变异</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-bold text-accent-400">{stats.unique}</p>
-          <p className="text-sm text-slate-400">特有变异</p>
-        </div>
-        <div className="card p-4 text-center">
-          <p className="text-3xl font-bold text-red-400">{stats.pathogenic}</p>
-          <p className="text-sm text-slate-400">致病性</p>
-        </div>
-      </div>
+      <InteractiveSetChart
+        sampleIds={selectedSampleIds}
+        sampleNames={selectedSampleIds.map(getSampleName)}
+        subsets={subsets}
+        selectedSubsetId={selectedSubsetId}
+        onSelectSubset={setSelectedSubsetId}
+        totalCount={stats.total}
+        sharedCount={stats.shared}
+        uniqueCount={stats.unique}
+        pathogenicCount={stats.pathogenic}
+      />
 
       <div className="grid grid-cols-12 gap-6">
         <div className="col-span-3 space-y-6">
@@ -414,10 +433,32 @@ export default function VariantComparison() {
             </div>
           ) : (
             <div className="card overflow-hidden">
-              <div className="p-4 border-b border-slate-700 flex items-center justify-between">
-                <span className="text-sm text-slate-400">
-                  找到 <span className="text-white font-medium">{filteredResults.length}</span> 个变异位点
-                </span>
+              <div className="p-4 border-b border-slate-700 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-sm text-slate-400">
+                    找到 <span className="text-white font-medium">{filteredResults.length}</span> 个变异位点
+                  </span>
+                  {selectedSubset && (
+                    <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-primary-500/15 border border-primary-500/40 text-primary-300 text-xs">
+                      <span className="w-1.5 h-1.5 rounded-full bg-primary-400 animate-pulse" />
+                      <span>
+                        筛选: {selectedSubset.sampleNames.join(' ∩ ')}
+                        {selectedSubset.isShared ? '（全部共有）' : selectedSubset.isUnique ? '（特有）' : ''}
+                      </span>
+                      <button
+                        onClick={() => setSelectedSubsetId(null)}
+                        className="ml-1 p-0.5 rounded hover:bg-primary-500/30 transition-colors"
+                        title="清除筛选"
+                      >
+                        <X size={12} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span>共 {comparisonResults.length} 个总位点</span>
+                  {selectedSubset && <span>· 占比 {((selectedSubset.count / Math.max(1, comparisonResults.length)) * 100).toFixed(1)}%</span>}
+                </div>
               </div>
               <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
                 <table className="data-table">
