@@ -3,7 +3,7 @@ import {
   GripVertical, Trash2, Plus, ChevronLeft, Save, X,
   FileText, Table as TableIcon, BarChart3, Code as CodeIcon,
   Image as ImageIcon, Quote as QuoteIcon, Check, Copy,
-  Pencil, MoveUp, MoveDown, ColumnsPlusRight, Rows3Plus, Minus
+  Pencil, MoveUp, MoveDown, Columns, ListPlus, Minus
 } from 'lucide-react';
 import { useAnalysisStore } from '@/store/useAnalysisStore';
 import type { AnalysisReport, ReportSection, ReportSectionType } from '@shared/types';
@@ -407,13 +407,13 @@ function TableSectionEditor({ content, onChange }: { content: Record<string, unk
           className="btn-secondary text-xs flex items-center gap-1 py-1.5"
           onClick={addRow}
         >
-          <Rows3Plus size={14} /> 新增行
+          <ListPlus size={14} /> 新增行
         </button>
         <button
           className="btn-secondary text-xs flex items-center gap-1 py-1.5"
           onClick={addColumn}
         >
-          <ColumnsPlusRight size={14} /> 新增列
+          <Columns size={14} /> 新增列
         </button>
         <button
           className="btn-secondary text-xs flex items-center gap-1 py-1.5"
