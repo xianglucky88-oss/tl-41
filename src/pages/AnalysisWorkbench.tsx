@@ -83,12 +83,13 @@ export default function AnalysisWorkbench() {
   const {
     samples, projects, batches, analyses, alignmentResults,
     templates, popularTemplates, favoriteTemplates,
+    pendingTemplateGraph, pendingTemplateName,
     selectedSampleIds, setSelectedSampleIds,
     currentAnalysis, setCurrentAnalysis,
     createAnalysis, updateAnalysis, runAlignment, completeAnalysis,
     saveAnalysisTemplate, loading, error,
     fetchTemplates, fetchPopularTemplates, fetchFavorites,
-    useTemplate, toggleFavorite,
+    useTemplate, toggleFavorite, clearPendingTemplate,
   } = useAnalysisStore();
 
   const [analysisName, setAnalysisName] = useState('');
@@ -96,7 +97,12 @@ export default function AnalysisWorkbench() {
   const [selectedProjectId, setSelectedProjectId] = useState('');
   const [selectedBatchId, setSelectedBatchId] = useState('');
 
-  const [graph, setGraph] = useState<WorkflowGraph>(createInitialGraph());
+  const [graph, setGraph] = useState<WorkflowGraph>(() => {
+    if (pendingTemplateGraph) {
+      return pendingTemplateGraph;
+    }
+    return createInitialGraph();
+  });
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [showVersionHistory, setShowVersionHistory] = useState(false);
 
@@ -106,6 +112,15 @@ export default function AnalysisWorkbench() {
   const [selectedTemplateCategory, setSelectedTemplateCategory] = useState<string>('all');
 
   useEffect(() => {
+    if (pendingTemplateGraph) {
+      setGraph(pendingTemplateGraph);
+    }
+    if (pendingTemplateName) {
+      setAnalysisName(pendingTemplateName);
+    }
+    if (pendingTemplateGraph || pendingTemplateName) {
+      clearPendingTemplate();
+    }
     fetchTemplates();
     fetchPopularTemplates();
     fetchFavorites();

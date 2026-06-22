@@ -40,6 +40,8 @@ interface AnalysisState {
   templateCategories: { id: string; name: string; count: number }[];
   popularTemplates: WorkflowTemplate[];
   shareLinks: ShareLink[];
+  pendingTemplateGraph: WorkflowGraph | null;
+  pendingTemplateName: string | null;
   loading: boolean;
   error: string | null;
 }
@@ -112,6 +114,8 @@ interface AnalysisActions {
   useTemplate: (templateId: string) => Promise<{ graph: WorkflowGraph; parameters: Record<string, string | number | boolean>; name: string } | null>;
   fetchPopularTemplates: (limit?: number) => Promise<void>;
   setCurrentTemplate: (template: WorkflowTemplate | null) => void;
+  setPendingTemplate: (graph: WorkflowGraph | null, name?: string | null) => void;
+  clearPendingTemplate: () => void;
 }
 
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
@@ -178,6 +182,8 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   templateCategories: [],
   popularTemplates: [],
   shareLinks: [],
+  pendingTemplateGraph: null,
+  pendingTemplateName: null,
   loading: false,
   error: null,
 
@@ -1140,26 +1146,30 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
       const res = await fetch(`/api/templates/${templateId}/use`, { method: 'POST' });
       const data = await res.json();
       if (data.success) {
+        set({ pendingTemplateGraph: data.data.graph, pendingTemplateName: data.data.name });
         return data.data;
       }
       const template = BUILT_IN_TEMPLATES.find(t => t.id === templateId);
       if (template) {
-        return {
+        const result = {
           graph: template.graph,
           parameters: template.parameters,
           name: template.name,
         };
+        set({ pendingTemplateGraph: result.graph, pendingTemplateName: result.name });
+        return result;
       }
       throw new Error(data.message || '加载模板失败');
     } catch (error) {
       const template = BUILT_IN_TEMPLATES.find(t => t.id === templateId);
       if (template) {
-        set({ error: null });
-        return {
+        const result = {
           graph: template.graph,
           parameters: template.parameters,
           name: template.name,
         };
+        set({ error: null, pendingTemplateGraph: result.graph, pendingTemplateName: result.name });
+        return result;
       }
       set({ error: error instanceof Error ? error.message : '加载模板失败' });
       throw error;
@@ -1173,7 +1183,7 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
     try {
       const res = await fetch(`/api/templates/popular?limit=${limit}`);
       const data = await res.json();
-      if (data.success && data.data && data.data.length > 0) {
+      if (data.success && data.data) {
         set({ popularTemplates: data.data });
       } else {
         const popular = [...BUILT_IN_TEMPLATES]
@@ -1192,4 +1202,6 @@ export const useAnalysisStore = create<AnalysisState & AnalysisActions>((set, ge
   },
 
   setCurrentTemplate: (template) => set({ currentTemplate: template }),
+  setPendingTemplate: (graph, name = null) => set({ pendingTemplateGraph: graph, pendingTemplateName: name }),
+  clearPendingTemplate: () => set({ pendingTemplateGraph: null, pendingTemplateName: null }),
 }));

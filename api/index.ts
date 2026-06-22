@@ -15,6 +15,7 @@ import { BUILT_IN_TEMPLATES, getTemplateById, getTemplatesByCategory, searchTemp
 
 const app = express();
 const PORT = 3001;
+const FRONTEND_PORT = 5173;
 
 app.use(cors());
 app.use(express.json());
@@ -789,7 +790,7 @@ app.post('/api/templates/:id/share', (req, res) => {
 
   res.json(successResponse({
     ...newShareLink,
-    shareUrl: `${req.protocol}://${req.get('host')}/share/${shareCode}`,
+    shareUrl: `${req.protocol}://${req.hostname}:${FRONTEND_PORT}/share/${shareCode}`,
   }, '分享链接创建成功'));
 });
 
